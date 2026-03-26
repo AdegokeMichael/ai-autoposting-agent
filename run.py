@@ -36,7 +36,7 @@ def _banner():
     tiktok = bool(os.getenv("TIKTOK_ACCESS_TOKEN", "").strip())
 
     print("\n\033[1m\033[96m ╔══════════════════════════════╗")
-    print(" ║   MrBade AutoPoster  v2      ║")
+    print(" ║   AI Autoposting Agent       ║")
     print(" ╚══════════════════════════════╝\033[0m")
     print(f"\n  \033[92m●\033[0m  Dashboard  →  \033[96mhttp://localhost:{port}\033[0m")
     print(f"  {'✅' if tiktok else '⚠️ '} TikTok API  →  {'Connected' if tiktok else 'Not configured (set TIKTOK_ACCESS_TOKEN)'}")
