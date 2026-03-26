@@ -32,6 +32,6 @@ Thumbs.db
 
 # Whisper model cache (downloaded automatically)
 .cache/
--e 
+
 # Docker
 nginx/ssl/
