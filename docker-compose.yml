@@ -8,7 +8,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: mrbade-autoposter
+    container_name: ai-autoposting-agent
     restart: unless-stopped
 
     # Load environment from your .env file
