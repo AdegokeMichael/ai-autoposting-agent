@@ -11,7 +11,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: mrbade-autoposter
+    container_name: ai-autoposting-agent
     restart: always
 
     env_file:
@@ -41,7 +41,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: mrbade-nginx
+    container_name: ai-autoposting-nginx
     restart: always
 
     ports:
