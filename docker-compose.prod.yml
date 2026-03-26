@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────
+#  docker-compose.prod.yml — EC2 PRODUCTION
+#  Runs the app + Nginx reverse proxy in containers
+#
+#  Usage on EC2:
+#    docker compose -f docker-compose.prod.yml up -d
+# ─────────────────────────────────────────────────────────────
+
+services:
+  autoposter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mrbade-autoposter
+    restart: always
+
+    env_file:
+      - .env
+
+    # Don't expose port directly — Nginx handles traffic
+    expose:
+      - "8000"
+
+    volumes:
+      - ./uploads:/app/uploads
+      - ./output:/app/output
+      - ./watch_inbox:/app/watch_inbox
+      - ./watch_processed:/app/watch_processed
+      - whisper_cache:/home/appuser/.cache
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    # Only accessible within the Docker network
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:alpine
+    container_name: mrbade-nginx
+    restart: always
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro          # SSL certs go here (optional)
+      - ./output/clips:/var/www/clips:ro        # Nginx can serve clips directly
+
+    depends_on:
+      autoposter:
+        condition: service_healthy
+
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  whisper_cache:

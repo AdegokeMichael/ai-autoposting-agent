@@ -1,0 +1,277 @@
+"""
+AI Autoposting Agent - FastAPI Backend
+Endpoints:
+  POST /upload               → Upload video, start pipeline
+  GET  /jobs/{id}            → Check pipeline job status
+  GET  /clips                → List all clips (filterable by status)
+  GET  /clips/{id}           → Get single clip details
+  POST /clips/{id}/approve   → Approve (+ optional caption edit)
+  POST /clips/{id}/reject    → Reject clip
+  POST /clips/{id}/post      → Post approved clip to TikTok immediately
+  GET  /clips/{id}/video     → Stream the clip video
+  GET  /clips/{id}/thumb     → Get thumbnail image
+  POST /clips/{id}/schedule  → Schedule clip for a specific datetime
+  POST /clips/{id}/performance → Record real TikTok stats for hook learning
+  GET  /schedule/config      → Get scheduler config
+  PATCH /schedule/config     → Update scheduler config
+  GET  /schedule/queue       → See queued scheduled posts
+  GET  /schedule/next-runs   → See next scheduled posting times
+  GET  /analytics            → Dashboard analytics summary
+"""
+import os
+import uuid
+import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+from app.models import ApprovalAction, ClipStatus, ScheduleConfig
+from app import storage
+from app.pipeline import run_pipeline
+from app.tiktok import upload_and_post
+from app.scheduler import start_scheduler, stop_scheduler, update_schedule, get_next_run_times
+from app.hook_learner import record_performance, get_analytics_summary
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="AI Autoposting Agent", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+executor = ThreadPoolExecutor(max_workers=2)
+
+# ── Watcher (optional) ────────────────────────────────────────────────────────
+_watcher_observer = None
+
+def _maybe_start_watcher():
+    global _watcher_observer
+    watch_folder = os.getenv("WATCH_FOLDER")
+    if watch_folder:
+        from app.watcher import start_watcher
+        _watcher_observer = start_watcher(run_pipeline)
+        logger.info(f"[Watcher] Auto-watching folder: {watch_folder}")
+
+
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def on_startup():
+    start_scheduler()
+    _maybe_start_watcher()
+    logger.info("AI Autoposting Agent started")
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    stop_scheduler()
+    global _watcher_observer
+    if _watcher_observer:
+        from app.watcher import stop_watcher
+        stop_watcher(_watcher_observer)
+
+
+# ── Static files ──────────────────────────────────────────────────────────────
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    with open("static/index.html") as f:
+        return f.read()
+
+
+# ── Upload & Pipeline ─────────────────────────────────────────────────────────
+
+@app.post("/upload")
+async def upload_video(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv", ".webm")):
+        raise HTTPException(400, "Unsupported file type. Use mp4, mov, avi, mkv, or webm.")
+
+    upload_id = str(uuid.uuid4())[:8]
+    ext = Path(file.filename).suffix
+    save_path = str(UPLOAD_DIR / f"{upload_id}{ext}")
+
+    contents = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(contents)
+
+    file_size_mb = len(contents) / (1024 * 1024)
+    logger.info(f"Video uploaded: {file.filename} ({file_size_mb:.1f} MB) → {save_path}")
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(executor, run_pipeline, save_path)
+
+    return {
+        "message": "Video uploaded. Pipeline is running!",
+        "filename": file.filename,
+        "size_mb": round(file_size_mb, 1),
+        "note": "Poll GET /clips to see clips as they become ready.",
+    }
+
+
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    job = storage.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return job
+
+
+# ── Clips ─────────────────────────────────────────────────────────────────────
+
+@app.get("/clips")
+async def list_clips(status: str = None):
+    clips = storage.get_all_clips()
+    if status:
+        clips = [c for c in clips if c.status.value == status]
+    clips.sort(key=lambda c: c.created_at, reverse=True)
+    return clips
+
+
+@app.get("/clips/{clip_id}")
+async def get_clip(clip_id: str):
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    return clip
+
+
+@app.post("/clips/{clip_id}/approve")
+async def approve_clip(clip_id: str, action: ApprovalAction = None):
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    if clip.status != ClipStatus.PENDING:
+        raise HTTPException(400, f"Clip is not pending (current status: {clip.status})")
+
+    if action and (action.caption or action.hashtags):
+        caption = action.caption or clip.caption
+        hashtags = action.hashtags or clip.hashtags
+        storage.update_clip_content(clip_id, caption, hashtags)
+
+    storage.update_clip_status(clip_id, ClipStatus.APPROVED)
+    logger.info(f"Clip {clip_id} approved ")
+    return {"status": "approved", "clip_id": clip_id}
+
+
+@app.post("/clips/{clip_id}/reject")
+async def reject_clip(clip_id: str):
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    storage.update_clip_status(clip_id, ClipStatus.REJECTED)
+    logger.info(f"Clip {clip_id} rejected ")
+    return {"status": "rejected", "clip_id": clip_id}
+
+
+@app.post("/clips/{clip_id}/post")
+async def post_to_tiktok(clip_id: str):
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    if clip.status != ClipStatus.APPROVED:
+        raise HTTPException(400, "Clip must be approved before posting")
+
+    try:
+        result = await upload_and_post(
+            clip_path=clip.clip_path,
+            post_text=clip.full_post_text,
+            clip_id=clip_id,
+        )
+        storage.update_clip_status(clip_id, ClipStatus.POSTED, tiktok_post_id=result.get("publish_id"))
+        return {"status": "posted", "tiktok_publish_id": result.get("publish_id")}
+    except Exception as e:
+        storage.update_clip_status(clip_id, ClipStatus.FAILED)
+        raise HTTPException(500, f"TikTok posting failed: {str(e)}")
+
+
+@app.post("/clips/{clip_id}/performance")
+async def record_clip_performance(
+    clip_id: str,
+    views: int = 0,
+    likes: int = 0,
+    shares: int = 0,
+    comments: int = 0,
+    watch_rate: float = 0.0,
+):
+    """
+    Record real TikTok performance stats for a clip.
+    This feeds back into Claude's hook scoring to improve future clips.
+    watch_rate = decimal 0.0-1.0 (e.g. 0.65 = 65% watch past 3s)
+    """
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+
+    record_performance(clip_id, views=views, likes=likes,
+                       shares=shares, comments=comments, watch_rate=watch_rate)
+    return {"status": "recorded", "clip_id": clip_id, "views": views}
+
+
+# ── Schedule ──────────────────────────────────────────────────────────────────
+
+@app.get("/schedule/config")
+async def get_schedule_config():
+    return storage.get_schedule_config()
+
+
+@app.patch("/schedule/config")
+async def patch_schedule_config(config: ScheduleConfig):
+    update_schedule(config)
+    return {"status": "updated", "config": config}
+
+
+@app.get("/schedule/queue")
+async def get_schedule_queue():
+    return storage.get_all_scheduled_posts()
+
+
+@app.get("/schedule/next-runs")
+async def get_next_runs():
+    return get_next_run_times()
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+@app.get("/analytics")
+async def get_analytics():
+    return get_analytics_summary()
+
+
+# ── Media serving ─────────────────────────────────────────────────────────────
+
+@app.get("/clips/{clip_id}/video")
+async def serve_video(clip_id: str):
+    clip = storage.get_clip(clip_id)
+    if not clip or not Path(clip.clip_path).exists():
+        raise HTTPException(404, "Video file not found")
+    return FileResponse(clip.clip_path, media_type="video/mp4")
+
+
+@app.get("/clips/{clip_id}/thumb")
+async def serve_thumbnail(clip_id: str):
+    clip = storage.get_clip(clip_id)
+    if not clip or not clip.thumbnail_path or not Path(clip.thumbnail_path).exists():
+        raise HTTPException(404, "Thumbnail not found")
+    return FileResponse(clip.thumbnail_path, media_type="image/jpeg")

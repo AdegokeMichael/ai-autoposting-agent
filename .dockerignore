@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────
+#  .dockerignore
+#  Keeps the Docker build context small and fast.
+#  Anything listed here is NOT sent to the Docker daemon.
+# ─────────────────────────────────────────────────────────────
+
+# Secrets — never bake these into the image
+.env
+
+# Large data directories — mounted as volumes at runtime
+uploads/
+output/
+watch_inbox/
+watch_processed/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# GitHub Actions
+.github/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Zip artifacts
+*.zip
+
+# README and docs (not needed inside the container)
+README.md
