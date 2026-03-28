@@ -54,12 +54,22 @@ def get_pending_clips() -> list[GeneratedClip]:
     return [c for c in get_all_clips() if c.status == ClipStatus.PENDING]
 
 
-def update_clip_status(clip_id: str, status: ClipStatus, tiktok_post_id: str = None):
+def update_clip_status(clip_id: str, status: ClipStatus, tiktok_post_id: str = None, platform_key: str = None, publish_id: str = None, publish_url: str = None):
     data = _load(CLIPS_FILE)
     if clip_id in data:
         data[clip_id]["status"] = status.value
+        # Legacy TikTok field
         if tiktok_post_id:
             data[clip_id]["tiktok_post_id"] = tiktok_post_id
+        # Multi-platform tracking
+        if platform_key and publish_id:
+            if "post_ids" not in data[clip_id]:
+                data[clip_id]["post_ids"] = {}
+            if "post_urls" not in data[clip_id]:
+                data[clip_id]["post_urls"] = {}
+            data[clip_id]["post_ids"][platform_key] = publish_id
+            if publish_url:
+                data[clip_id]["post_urls"][platform_key] = publish_url
         _save(CLIPS_FILE, data)
 
 
