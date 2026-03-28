@@ -1,5 +1,5 @@
 """
-AI Autoposting Agent - FastAPI Backend
+MrBade AutoPoster — FastAPI Backend
 Endpoints:
   POST /upload               → Upload video, start pipeline
   GET  /jobs/{id}            → Check pipeline job status
@@ -35,7 +35,7 @@ from dotenv import load_dotenv
 from app.models import ApprovalAction, ClipStatus, ScheduleConfig
 from app import storage
 from app.pipeline import run_pipeline
-from app.tiktok import upload_and_post
+from app.platforms import post_to_platform, get_platform_status, get_configured_platforms
 from app.scheduler import start_scheduler, stop_scheduler, update_schedule, get_next_run_times
 from app.hook_learner import record_performance, get_analytics_summary
 
@@ -47,7 +47,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Autoposting Agent", version="1.0.0")
+app = FastAPI(title="MrBade AutoPoster", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,7 +79,7 @@ def _maybe_start_watcher():
 async def on_startup():
     start_scheduler()
     _maybe_start_watcher()
-    logger.info("AI Autoposting Agent started")
+    logger.info("MrBade AutoPoster v2 started ✅")
 
 
 @app.on_event("shutdown")
@@ -171,7 +171,7 @@ async def approve_clip(clip_id: str, action: ApprovalAction = None):
         storage.update_clip_content(clip_id, caption, hashtags)
 
     storage.update_clip_status(clip_id, ClipStatus.APPROVED)
-    logger.info(f"Clip {clip_id} approved ")
+    logger.info(f"Clip {clip_id} approved ✅")
     return {"status": "approved", "clip_id": clip_id}
 
 
@@ -181,12 +181,16 @@ async def reject_clip(clip_id: str):
     if not clip:
         raise HTTPException(404, "Clip not found")
     storage.update_clip_status(clip_id, ClipStatus.REJECTED)
-    logger.info(f"Clip {clip_id} rejected ")
+    logger.info(f"Clip {clip_id} rejected ❌")
     return {"status": "rejected", "clip_id": clip_id}
 
 
 @app.post("/clips/{clip_id}/post")
-async def post_to_tiktok(clip_id: str):
+async def post_clip(clip_id: str, platform: str = "youtube"):
+    """
+    Post an approved clip to a platform.
+    platform: tiktok | youtube | instagram | facebook (default: youtube)
+    """
     clip = storage.get_clip(clip_id)
     if not clip:
         raise HTTPException(404, "Clip not found")
@@ -194,16 +198,35 @@ async def post_to_tiktok(clip_id: str):
         raise HTTPException(400, "Clip must be approved before posting")
 
     try:
-        result = await upload_and_post(
+        result = await post_to_platform(
+            platform_key=platform,
             clip_path=clip.clip_path,
             post_text=clip.full_post_text,
             clip_id=clip_id,
+            title=clip.topic,
         )
-        storage.update_clip_status(clip_id, ClipStatus.POSTED, tiktok_post_id=result.get("publish_id"))
-        return {"status": "posted", "tiktok_publish_id": result.get("publish_id")}
+        storage.update_clip_status(
+            clip_id,
+            ClipStatus.POSTED,
+            platform_key=platform,
+            publish_id=result.get("publish_id"),
+            publish_url=result.get("url"),
+        )
+        return {
+            "status": "posted",
+            "platform": result.get("platform_name"),
+            "publish_id": result.get("publish_id"),
+            "url": result.get("url"),
+        }
     except Exception as e:
         storage.update_clip_status(clip_id, ClipStatus.FAILED)
-        raise HTTPException(500, f"TikTok posting failed: {str(e)}")
+        raise HTTPException(500, f"Posting to {platform} failed: {str(e)}")
+
+
+@app.get("/platforms")
+async def list_platforms():
+    """Return all platforms and their configuration status."""
+    return get_platform_status()
 
 
 @app.post("/clips/{clip_id}/performance")
