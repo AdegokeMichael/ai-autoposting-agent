@@ -54,6 +54,35 @@ def get_pending_clips() -> list[GeneratedClip]:
     return [c for c in get_all_clips() if c.status == ClipStatus.PENDING]
 
 
+def delete_clip(clip_id: str) -> bool:
+    """
+    Remove a clip from storage and delete its files from disk.
+    Returns True if deleted, False if not found.
+    """
+    import shutil
+    data = _load(CLIPS_FILE)
+    if clip_id not in data:
+        return False
+
+    clip_data = data[clip_id]
+
+    # Delete video file
+    clip_path = clip_data.get("clip_path")
+    if clip_path and Path(clip_path).exists():
+        Path(clip_path).unlink()
+
+    # Delete thumbnail
+    thumb_path = clip_data.get("thumbnail_path")
+    if thumb_path and Path(thumb_path).exists():
+        Path(thumb_path).unlink()
+
+    # Remove from store
+    del data[clip_id]
+    _save(CLIPS_FILE, data)
+    logger.info(f"Deleted clip {clip_id} and its files.")
+    return True
+
+
 def update_clip_status(clip_id: str, status: ClipStatus, tiktok_post_id: str = None, platform_key: str = None, publish_id: str = None, publish_url: str = None):
     data = _load(CLIPS_FILE)
     if clip_id in data:

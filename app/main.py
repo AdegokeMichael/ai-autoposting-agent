@@ -298,3 +298,110 @@ async def serve_thumbnail(clip_id: str):
     if not clip or not clip.thumbnail_path or not Path(clip.thumbnail_path).exists():
         raise HTTPException(404, "Thumbnail not found")
     return FileResponse(clip.thumbnail_path, media_type="image/jpeg")
+
+
+@app.get("/clips/{clip_id}/download")
+async def download_clip(clip_id: str):
+    """
+    Download the clip video file with a clean filename.
+    The browser will prompt a Save As dialog.
+    """
+    clip = storage.get_clip(clip_id)
+    if not clip or not Path(clip.clip_path).exists():
+        raise HTTPException(404, "Video file not found")
+
+    # Build a clean filename from the topic
+    safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in clip.topic)
+    safe_topic = safe_topic.strip().replace(" ", "_")[:50]
+    filename = f"{clip_id}_{safe_topic}.mp4"
+
+    return FileResponse(
+        clip.clip_path,
+        media_type="video/mp4",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/clips/{clip_id}/download-package")
+async def download_package(clip_id: str):
+    """
+    Download a ZIP containing:
+      - the video clip (.mp4)
+      - caption.txt  (caption text)
+      - hashtags.txt (hashtags)
+      - post.txt     (full ready-to-paste post text)
+      - metadata.json (clip details)
+    """
+    import zipfile
+    import io
+    import json
+    from fastapi.responses import StreamingResponse
+
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    if not Path(clip.clip_path).exists():
+        raise HTTPException(404, "Video file not found")
+
+    safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in clip.topic)
+    safe_topic = safe_topic.strip().replace(" ", "_")[:50]
+    zip_filename = f"{clip_id}_{safe_topic}.zip"
+
+    # Build zip in memory
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+
+        # Video file
+        video_name = f"{clip_id}_{safe_topic}.mp4"
+        zf.write(clip.clip_path, video_name)
+
+        # caption.txt
+        zf.writestr("caption.txt", clip.caption)
+
+        # hashtags.txt
+        hashtag_line = " ".join(f"#{h.lstrip('#')}" for h in clip.hashtags)
+        zf.writestr("hashtags.txt", hashtag_line)
+
+        # post.txt — the full ready-to-paste text
+        zf.writestr("post.txt", clip.full_post_text)
+
+        # metadata.json
+        meta = {
+            "clip_id": clip.id,
+            "topic": clip.topic,
+            "hook_text": clip.hook_text,
+            "hook_score": clip.hook_score,
+            "duration_seconds": clip.duration,
+            "start_time": clip.start_time,
+            "end_time": clip.end_time,
+            "status": clip.status,
+            "created_at": clip.created_at,
+            "post_urls": clip.post_urls,
+        }
+        zf.writestr("metadata.json", json.dumps(meta, indent=2))
+
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )
+
+
+@app.delete("/clips/{clip_id}")
+async def delete_clip(clip_id: str):
+    """
+    Permanently delete a clip and its files from disk.
+    This cannot be undone.
+    """
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+
+    deleted = storage.delete_clip(clip_id)
+    if not deleted:
+        raise HTTPException(500, "Failed to delete clip")
+
+    logger.info(f"Clip {clip_id} deleted by user.")
+    return {"status": "deleted", "clip_id": clip_id}
