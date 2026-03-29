@@ -176,7 +176,13 @@
   .toast.error{border-color:var(--danger);color:var(--danger);}
   @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
 
-  code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:.85em;}
+  .btn-danger{background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);color:var(--danger);}
+  .btn-danger:hover:not(:disabled){background:rgba(255,71,87,.2);border-color:var(--danger);}
+  .btn-download{background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.4);color:var(--accent);}
+  .btn-download:hover:not(:disabled){background:rgba(124,92,252,.2);}
+  /* ── Card footer actions ── */
+  .clip-footer{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+  .clip-footer .btn{flex:1;padding:7px 10px;font-size:.72rem;}
 </style>
 </head>
 <body>
@@ -532,6 +538,11 @@ function renderCard(clip, i){
       </div>
       <div class="hashtags">${ht}</div>
       <div class="clip-actions">${actions}</div>
+      <div class="clip-footer">
+        <button class="btn btn-download" onclick="downloadVideo('${clip.id}')" title="Download video only">⬇ Video</button>
+        <button class="btn btn-download" onclick="downloadPackage('${clip.id}')" title="Download video + caption + hashtags as ZIP">📦 Full Pack</button>
+        <button class="btn btn-danger" onclick="deleteClip('${clip.id}')" title="Delete this clip permanently">🗑 Delete</button>
+      </div>
     </div>
   </div>`;
 }
@@ -563,6 +574,31 @@ async function approveAndPost(id){await approveClip(id);await postClip(id);}
 function gotoPerf(clipId){
   document.querySelectorAll('.nav-tab')[2].click();
   setTimeout(()=>{document.getElementById('perfClipId').value=clipId;document.getElementById('perfViews').focus();},200);
+}
+
+function downloadVideo(id){
+  const a=document.createElement('a');
+  a.href=`/clips/${id}/download`;
+  a.click();
+}
+
+function downloadPackage(id){
+  toast('Preparing download package...','success');
+  const a=document.createElement('a');
+  a.href=`/clips/${id}/download-package`;
+  a.click();
+}
+
+async function deleteClip(id){
+  if(!confirm('Delete this clip permanently? This cannot be undone.')) return;
+  const res=await fetch(`/clips/${id}`,{method:'DELETE'});
+  if(res.ok){
+    toast('Clip deleted','success');
+    await loadClips();
+  }else{
+    const d=await res.json().catch(()=>({}));
+    toast('Delete failed: '+(d.detail||'error'),'error');
+  }
 }
 
 // ── Schedule ──────────────────────────────────────────
