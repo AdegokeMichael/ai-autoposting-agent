@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI Autoposting Agent - Entry Point
+MrBade AutoPoster v2 — Entry Point
 Run: python run.py
 
 First time? Run: python setup_check.py
@@ -17,13 +17,13 @@ load_dotenv()
 def _check_critical():
     key = os.getenv("ANTHROPIC_API_KEY", "")
     if not key or key.startswith("your_"):
-        print("\n\033[91m ANTHROPIC_API_KEY is not set in your .env file.\033[0m")
+        print("\n\033[91m❌ ANTHROPIC_API_KEY is not set in your .env file.\033[0m")
         print("   Run \033[93mpython setup_check.py\033[0m for full diagnostics.\n")
         sys.exit(1)
 
     import shutil
     if not shutil.which("ffmpeg"):
-        print("\n\033[91m FFmpeg is not installed or not in PATH.\033[0m")
+        print("\n\033[91m❌ FFmpeg is not installed or not in PATH.\033[0m")
         print("   Mac:   brew install ffmpeg")
         print("   Linux: apt install ffmpeg\n")
         sys.exit(1)
@@ -36,7 +36,7 @@ def _banner():
     tiktok = bool(os.getenv("TIKTOK_ACCESS_TOKEN", "").strip())
 
     print("\n\033[1m\033[96m ╔══════════════════════════════╗")
-    print(" ║   AI Autoposting Agent       ║")
+    print(" ║   MrBade AutoPoster  v2      ║")
     print(" ╚══════════════════════════════╝\033[0m")
     print(f"\n  \033[92m●\033[0m  Dashboard  →  \033[96mhttp://localhost:{port}\033[0m")
     print(f"  {'✅' if tiktok else '⚠️ '} TikTok API  →  {'Connected' if tiktok else 'Not configured (set TIKTOK_ACCESS_TOKEN)'}")
