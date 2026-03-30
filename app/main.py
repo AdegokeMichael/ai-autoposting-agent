@@ -288,6 +288,13 @@ async def get_analytics():
     return get_analytics_summary()
 
 
+@app.get("/ai/provider")
+async def get_ai_provider():
+    """Return the currently active AI provider and model."""
+    from app.ai_brain import get_provider_info
+    return get_provider_info()
+
+
 # ── Overlay / Brand Template ───────────────────────────────────────────────────
 
 @app.get("/overlay/config")
