@@ -1,7 +1,7 @@
 fastapi==0.111.0
 uvicorn==0.29.0
 python-multipart==0.0.9
-faster-whisper==1.1.0
+faster-whisper==1.0.1
 anthropic==0.25.0
 ffmpeg-python==0.2.0
 python-dotenv==1.0.1
@@ -16,3 +16,4 @@ google-api-python-client==2.131.0
 google-auth==2.29.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
+groq==0.9.0
