@@ -1,5 +1,5 @@
 """
-AI Autoposting Agent - FastAPI Backend
+MrBade AutoPoster — FastAPI Backend
 Endpoints:
   POST /upload               → Upload video, start pipeline
   GET  /jobs/{id}            → Check pipeline job status
@@ -35,9 +35,15 @@ from dotenv import load_dotenv
 from app.models import ApprovalAction, ClipStatus, ScheduleConfig
 from app import storage
 from app.pipeline import run_pipeline
-from app.tiktok import upload_and_post
+from app.platforms import post_to_platform, get_platform_status, get_configured_platforms
 from app.scheduler import start_scheduler, stop_scheduler, update_schedule, get_next_run_times
 from app.hook_learner import record_performance, get_analytics_summary
+from app.overlays import (
+    get_overlay_config, save_overlay_config,
+    save_template, delete_template,
+    list_archived_templates, restore_template,
+    get_active_template,
+)
 
 load_dotenv()
 
@@ -47,7 +53,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI Autoposting Agent", version="1.0.0")
+app = FastAPI(title="MrBade AutoPoster", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,7 +85,7 @@ def _maybe_start_watcher():
 async def on_startup():
     start_scheduler()
     _maybe_start_watcher()
-    logger.info("AI Autoposting Agent started")
+    logger.info("MrBade AutoPoster v2 started ✅")
 
 
 @app.on_event("shutdown")
@@ -171,7 +177,7 @@ async def approve_clip(clip_id: str, action: ApprovalAction = None):
         storage.update_clip_content(clip_id, caption, hashtags)
 
     storage.update_clip_status(clip_id, ClipStatus.APPROVED)
-    logger.info(f"Clip {clip_id} approved ")
+    logger.info(f"Clip {clip_id} approved ✅")
     return {"status": "approved", "clip_id": clip_id}
 
 
@@ -181,12 +187,16 @@ async def reject_clip(clip_id: str):
     if not clip:
         raise HTTPException(404, "Clip not found")
     storage.update_clip_status(clip_id, ClipStatus.REJECTED)
-    logger.info(f"Clip {clip_id} rejected ")
+    logger.info(f"Clip {clip_id} rejected ❌")
     return {"status": "rejected", "clip_id": clip_id}
 
 
 @app.post("/clips/{clip_id}/post")
-async def post_to_tiktok(clip_id: str):
+async def post_clip(clip_id: str, platform: str = "youtube"):
+    """
+    Post an approved clip to a platform.
+    platform: tiktok | youtube | instagram | facebook (default: youtube)
+    """
     clip = storage.get_clip(clip_id)
     if not clip:
         raise HTTPException(404, "Clip not found")
@@ -194,16 +204,35 @@ async def post_to_tiktok(clip_id: str):
         raise HTTPException(400, "Clip must be approved before posting")
 
     try:
-        result = await upload_and_post(
+        result = await post_to_platform(
+            platform_key=platform,
             clip_path=clip.clip_path,
             post_text=clip.full_post_text,
             clip_id=clip_id,
+            title=clip.topic,
         )
-        storage.update_clip_status(clip_id, ClipStatus.POSTED, tiktok_post_id=result.get("publish_id"))
-        return {"status": "posted", "tiktok_publish_id": result.get("publish_id")}
+        storage.update_clip_status(
+            clip_id,
+            ClipStatus.POSTED,
+            platform_key=platform,
+            publish_id=result.get("publish_id"),
+            publish_url=result.get("url"),
+        )
+        return {
+            "status": "posted",
+            "platform": result.get("platform_name"),
+            "publish_id": result.get("publish_id"),
+            "url": result.get("url"),
+        }
     except Exception as e:
         storage.update_clip_status(clip_id, ClipStatus.FAILED)
-        raise HTTPException(500, f"TikTok posting failed: {str(e)}")
+        raise HTTPException(500, f"Posting to {platform} failed: {str(e)}")
+
+
+@app.get("/platforms")
+async def list_platforms():
+    """Return all platforms and their configuration status."""
+    return get_platform_status()
 
 
 @app.post("/clips/{clip_id}/performance")
@@ -259,6 +288,92 @@ async def get_analytics():
     return get_analytics_summary()
 
 
+# ── Overlay / Brand Template ───────────────────────────────────────────────────
+
+@app.get("/overlay/config")
+async def get_overlay():
+    """Get current overlay configuration and template status."""
+    config = get_overlay_config()
+    template = get_active_template()
+    return {
+        **config,
+        "template_exists": template is not None,
+        "template_path": template,
+        "archived_templates": list_archived_templates(),
+    }
+
+
+@app.patch("/overlay/config")
+async def update_overlay_config(
+    enabled: bool = None,
+    similarity: float = None,
+):
+    """Toggle overlay on/off, adjust colorkey threshold."""
+    updates = {}
+    if enabled is not None:
+        updates["enabled"] = enabled
+    if similarity is not None:
+        updates["similarity"] = max(0.01, min(0.5, similarity))
+
+    save_overlay_config(updates)
+    return {"status": "updated", "config": get_overlay_config()}
+
+
+@app.post("/overlay/template")
+async def upload_template(file: UploadFile = File(...)):
+    """
+    Upload a new brand template image.
+    Accepted formats: PNG, JPG.
+    The old template is automatically archived and can be restored.
+    Recommended: 1080x1920 PNG (9:16 vertical).
+    """
+    if not file.filename.lower().endswith((".png", ".jpg", ".jpeg")):
+        raise HTTPException(400, "Template must be a PNG or JPG image.")
+
+    contents = await file.read()
+    size_kb = len(contents) / 1024
+
+    if size_kb > 10240:  # 10MB limit
+        raise HTTPException(400, "Template file is too large. Maximum 10MB.")
+
+    template_path = save_template(contents, file.filename)
+    logger.info(f"New brand template uploaded: {file.filename} ({size_kb:.1f}KB)")
+
+    return {
+        "status": "uploaded",
+        "filename": file.filename,
+        "size_kb": round(size_kb, 1),
+        "path": template_path,
+    }
+
+
+@app.delete("/overlay/template")
+async def remove_template():
+    """Delete the active template. Overlay will be skipped until a new one is uploaded."""
+    delete_template()
+    return {"status": "deleted"}
+
+
+@app.get("/overlay/template/preview")
+async def preview_template():
+    """Serve the active template image for preview in the dashboard."""
+    template = get_active_template()
+    if not template or not Path(template).exists():
+        raise HTTPException(404, "No template found")
+    media_type = "image/png" if template.endswith(".png") else "image/jpeg"
+    return FileResponse(template, media_type=media_type)
+
+
+@app.post("/overlay/template/restore/{filename}")
+async def restore_archived_template(filename: str):
+    """Restore a previously archived template."""
+    try:
+        path = restore_template(filename)
+        return {"status": "restored", "path": path}
+    except FileNotFoundError:
+        raise HTTPException(404, f"Archive not found: {filename}")
+
+
 # ── Media serving ─────────────────────────────────────────────────────────────
 
 @app.get("/clips/{clip_id}/video")
@@ -275,3 +390,110 @@ async def serve_thumbnail(clip_id: str):
     if not clip or not clip.thumbnail_path or not Path(clip.thumbnail_path).exists():
         raise HTTPException(404, "Thumbnail not found")
     return FileResponse(clip.thumbnail_path, media_type="image/jpeg")
+
+
+@app.get("/clips/{clip_id}/download")
+async def download_clip(clip_id: str):
+    """
+    Download the clip video file with a clean filename.
+    The browser will prompt a Save As dialog.
+    """
+    clip = storage.get_clip(clip_id)
+    if not clip or not Path(clip.clip_path).exists():
+        raise HTTPException(404, "Video file not found")
+
+    # Build a clean filename from the topic
+    safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in clip.topic)
+    safe_topic = safe_topic.strip().replace(" ", "_")[:50]
+    filename = f"{clip_id}_{safe_topic}.mp4"
+
+    return FileResponse(
+        clip.clip_path,
+        media_type="video/mp4",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/clips/{clip_id}/download-package")
+async def download_package(clip_id: str):
+    """
+    Download a ZIP containing:
+      - the video clip (.mp4)
+      - caption.txt  (caption text)
+      - hashtags.txt (hashtags)
+      - post.txt     (full ready-to-paste post text)
+      - metadata.json (clip details)
+    """
+    import zipfile
+    import io
+    import json
+    from fastapi.responses import StreamingResponse
+
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    if not Path(clip.clip_path).exists():
+        raise HTTPException(404, "Video file not found")
+
+    safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in clip.topic)
+    safe_topic = safe_topic.strip().replace(" ", "_")[:50]
+    zip_filename = f"{clip_id}_{safe_topic}.zip"
+
+    # Build zip in memory
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+
+        # Video file
+        video_name = f"{clip_id}_{safe_topic}.mp4"
+        zf.write(clip.clip_path, video_name)
+
+        # caption.txt
+        zf.writestr("caption.txt", clip.caption)
+
+        # hashtags.txt
+        hashtag_line = " ".join(f"#{h.lstrip('#')}" for h in clip.hashtags)
+        zf.writestr("hashtags.txt", hashtag_line)
+
+        # post.txt — the full ready-to-paste text
+        zf.writestr("post.txt", clip.full_post_text)
+
+        # metadata.json
+        meta = {
+            "clip_id": clip.id,
+            "topic": clip.topic,
+            "hook_text": clip.hook_text,
+            "hook_score": clip.hook_score,
+            "duration_seconds": clip.duration,
+            "start_time": clip.start_time,
+            "end_time": clip.end_time,
+            "status": clip.status,
+            "created_at": clip.created_at,
+            "post_urls": clip.post_urls,
+        }
+        zf.writestr("metadata.json", json.dumps(meta, indent=2))
+
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+    )
+
+
+@app.delete("/clips/{clip_id}")
+async def delete_clip(clip_id: str):
+    """
+    Permanently delete a clip and its files from disk.
+    This cannot be undone.
+    """
+    clip = storage.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+
+    deleted = storage.delete_clip(clip_id)
+    if not deleted:
+        raise HTTPException(500, "Failed to delete clip")
+
+    logger.info(f"Clip {clip_id} deleted by user.")
+    return {"status": "deleted", "clip_id": clip_id}
