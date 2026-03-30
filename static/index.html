@@ -974,11 +974,11 @@ header{
         <!-- Hook Learner -->
         <div class="panel">
           <div class="panel-title">Hook Learner</div>
-          <div class="panel-sub">Claude improves its hook scoring automatically based on real performance data you feed in.</div>
+          <div class="panel-sub">The AI improves its hook scoring automatically based on real performance data you feed in.</div>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <div style="display:flex;align-items:center;gap:10px;font-size:.82rem;">
               <div style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0"></div>
-              <span style="color:var(--muted)">3+ clips recorded → Claude gets lesson data</span>
+              <span style="color:var(--muted)">3+ clips recorded → AI gets lesson data</span>
             </div>
             <div style="display:flex;align-items:center;gap:10px;font-size:.82rem;">
               <div style="width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0"></div>
@@ -988,6 +988,20 @@ header{
               <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
               <span style="color:var(--text)">30+ clips → Your audience profile is solid</span>
             </div>
+          </div>
+        </div>
+
+        <!-- AI Provider -->
+        <div class="panel">
+          <div class="panel-title">AI Brain</div>
+          <div class="panel-sub">Active model for clip analysis and caption writing. Change <code>AI_PROVIDER</code> in <code>.env</code> to switch.</div>
+          <div id="aiProviderCard" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:14px;">
+            <div style="color:var(--muted);font-size:.82rem">Loading...</div>
+          </div>
+          <div style="font-size:.75rem;color:var(--muted);line-height:1.9">
+            <span style="color:var(--accent);font-weight:600">groq</span> — free tier, very fast (recommended)<br>
+            <span style="color:var(--text2);font-weight:600">claude</span> — best caption quality, paid<br>
+            <span style="color:var(--text2);font-weight:600">ollama</span> — free forever, runs on your server
           </div>
         </div>
 
@@ -1335,6 +1349,26 @@ async function loadSettings(){
 
   // Load overlay config
   await loadOverlayConfig();
+
+  // Load AI provider info
+  try{
+    const ai=await fetch('/ai/provider').then(r=>r.json());
+    const providerColors={claude:'var(--text2)',groq:'var(--accent)',ollama:'var(--green)'};
+    const freeLabel=ai.free?`<span style="background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3);padding:2px 8px;border-radius:100px;font-size:.7rem;margin-left:8px">FREE</span>`:'';
+    const configLabel=ai.configured===false
+      ?`<div style="color:var(--red);font-size:.75rem;margin-top:6px">Not configured — add API key to .env</div>`
+      :`<div style="color:var(--green);font-size:.75rem;margin-top:4px">Connected</div>`;
+    document.getElementById('aiProviderCard').innerHTML=`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <div style="font-family:'DM Mono',monospace;font-size:1rem;font-weight:700;color:${providerColors[ai.provider]||'var(--text)'}">${ai.provider.toUpperCase()}</div>
+        ${freeLabel}
+      </div>
+      <div style="font-size:.8rem;color:var(--text2)">Model: <span style="font-family:'DM Mono',monospace">${ai.model||'—'}</span></div>
+      ${ai.base_url?`<div style="font-size:.75rem;color:var(--muted);margin-top:2px">${ai.base_url}</div>`:''}
+      ${configLabel}`;
+  }catch(e){
+    document.getElementById('aiProviderCard').innerHTML=`<div style="color:var(--muted);font-size:.82rem">Could not load AI provider info.</div>`;
+  }
 }
 
 async function loadOverlayConfig(){
