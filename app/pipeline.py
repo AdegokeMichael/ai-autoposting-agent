@@ -11,6 +11,7 @@ from app.models import GeneratedClip, PipelineJob, ClipStatus, TranscriptSegment
 from app.transcriber import transcribe_video
 from app.analyzer import find_viral_clips, write_caption
 from app.editor import cut_clip, generate_thumbnail, get_video_duration
+from app.overlays import apply_overlay
 from app import storage
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ def run_pipeline(video_path: str) -> PipelineJob:
                 end_time=candidate.end_time,
             )
 
+            # Apply branded outro card (if enabled and template exists)
+            clip_path = apply_overlay(clip_path, clip_id)
+
             # Generate thumbnail
             thumb_path = generate_thumbnail(clip_path, clip_id)
 
@@ -100,7 +104,7 @@ def run_pipeline(video_path: str) -> PipelineJob:
             clips_found=len(clip_candidates),
             clips_generated=generated_clip_ids,
         )
-        logger.info(f"[Job {job_id}]  Pipeline complete. {len(generated_clip_ids)} clips ready for your approval.")
+        logger.info(f"[Job {job_id}] ✅ Pipeline complete. {len(generated_clip_ids)} clips ready for your approval.")
 
         return storage.get_job(job_id)
 
