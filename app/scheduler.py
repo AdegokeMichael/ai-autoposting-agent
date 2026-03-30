@@ -20,7 +20,7 @@ import pytz
 
 from app import storage
 from app.models import ScheduledPost, ClipStatus
-from app.tiktok import upload_and_post
+from app.platforms.router import post_to_platform
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,8 @@ async def _run_scheduled_posting():
     logger.info(f"[Scheduler] Auto-posting clip: {clip.id} — {clip.topic}")
 
     try:
-        result = await upload_and_post(
+        result = await post_to_platform(
+            platform_key="tiktok",
             clip_path=clip.clip_path,
             post_text=clip.full_post_text,
             clip_id=clip.id,
