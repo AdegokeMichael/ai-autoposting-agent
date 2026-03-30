@@ -1,18 +1,15 @@
 """
-Claude-powered analysis engine.
-1. Analyzes transcript to find the best viral clip moments
-2. Scores hooks (first 0.5s determines watch rate)
-3. Writes natural, human-sounding captions + hashtags
+AI analysis engine.
+Finds viral clip moments and writes captions.
+Uses app.ai_brain — switch the model in .env without touching this file.
 """
-import json
 import logging
-import anthropic
 from app.models import ClipSegment, TranscriptSegment
+from app import ai_brain
 
 logger = logging.getLogger(__name__)
-client = anthropic.Anthropic()
 
-# Lazy import to avoid circular deps
+
 def _get_lessons() -> str:
     try:
         from app.hook_learner import build_hook_lessons
@@ -20,9 +17,11 @@ def _get_lessons() -> str:
     except Exception:
         return ""
 
-# --- Bade Adesemowo's brand context — feed this to every prompt ---
+
+# ── Brand context ──────────────────────────────────────────────────────────────
+
 BRAND_CONTEXT = """
-You are helping Bade Adesemowo, a Tech Founder whose niche is:
+You are helping MrBade, a content creator whose niche is:
 - Startups & entrepreneurship
 - Talent visas (Global Talent Visa, O-1, etc.)
 - Being globally attractive as a professional/founder
@@ -33,7 +32,6 @@ His audience: ambitious professionals, founders, and immigrants who want to buil
 His tone: direct, confident, motivational, no-fluff. He speaks like a founder who's been through it.
 """
 
-# --- Hook training data — teach Claude what a great hook looks like ---
 HOOK_TRAINING = """
 HOOK PRINCIPLES (first 0.5 seconds = make or break):
 - Pattern interrupts: Say something unexpected or counterintuitive
@@ -48,31 +46,31 @@ STRONG hooks: Start mid-thought, with tension, with a number, with a contradicti
 """
 
 
+# ── Clip finder ────────────────────────────────────────────────────────────────
+
 def find_viral_clips(
     full_text: str,
     segments: list[TranscriptSegment],
     video_duration: float,
 ) -> list[ClipSegment]:
-    """
-    Ask Claude to find the best moments in the transcript to cut as viral clips.
-    Returns a list of ClipSegment with timestamps and hook analysis.
-    """
-    # Build a timestamped transcript for Claude
+    """Find the best viral clip moments in a transcript."""
     timestamped = "\n".join(
         f"[{seg.start:.1f}s - {seg.end:.1f}s]: {seg.text}"
         for seg in segments
     )
 
-    # Inject real performance lessons if we have them
     lessons = _get_lessons()
     lessons_block = f"\n{lessons}\n" if lessons else ""
+
+    provider_info = ai_brain.get_provider_info()
+    logger.info(f"[Analyzer] Finding viral clips via {provider_info['provider']} ({provider_info.get('model','')})")
 
     prompt = f"""
 {BRAND_CONTEXT}
 
 {HOOK_TRAINING}
 {lessons_block}
-Below is a timestamped transcript from one of Bade Adesemowo's videos (total duration: {video_duration:.0f} seconds).
+Below is a timestamped transcript from one of MrBade's videos (total duration: {video_duration:.0f} seconds).
 
 TIMESTAMPED TRANSCRIPT:
 {timestamped}
@@ -98,34 +96,23 @@ Return ONLY a valid JSON array. No explanation, no markdown, just the JSON:
 ]
 """
 
-    logger.info("Asking Claude to find viral clips...")
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    clips_data = ai_brain.complete_json(prompt, max_tokens=2000)
+    if not isinstance(clips_data, list):
+        raise ValueError(f"Expected a JSON array from AI, got: {type(clips_data)}")
 
-    raw = message.content[0].text.strip()
-
-    # Strip any accidental markdown fences
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    clips_data = json.loads(raw)
     clips = [ClipSegment(**c) for c in clips_data]
-    logger.info(f"Claude identified {len(clips)} viral clip candidates.")
+    logger.info(f"[Analyzer] Found {len(clips)} viral clip candidates.")
     return clips
 
+
+# ── Caption writer ─────────────────────────────────────────────────────────────
 
 def write_caption(
     clip_segment: ClipSegment,
     transcript_excerpt: str,
 ) -> tuple[str, list[str], str]:
     """
-    Write a natural, human-sounding TikTok caption for a clip.
+    Write a natural, human-sounding caption for a clip.
     Returns: (caption, hashtags, full_post_text)
     """
     prompt = f"""
@@ -140,7 +127,7 @@ CLIP DETAILS:
 - Clip transcript excerpt: {transcript_excerpt}
 
 CAPTION RULES:
-1. Write like Bade Adesemowo himself wrote it — direct, no fluff, founder energy
+1. Write like MrBade himself wrote it — direct, no fluff, founder energy
 2. DO NOT sound like AI. No "In today's video", no "I hope this helps", no bullet points with emojis as headers
 3. First line = the hook (rewrite the hook_text slightly for text format)
 4. 2-4 short punchy lines max. Leave space. TikTok is not a blog.
@@ -150,26 +137,14 @@ CAPTION RULES:
 Return ONLY valid JSON:
 {{
   "caption": "The caption text only (no hashtags)",
-  "hashtags": ["startup", "globaltalent", "talentvisa", "founder", "africaintech"]
+  "hashtags": ["eMigr8", "globaltalent", "talentvisa", "founder", "techtalent"]
 }}
 """
 
-    logger.info(f"Writing caption for clip: {clip_segment.topic}")
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=600,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    logger.info(f"[Analyzer] Writing caption via {ai_brain.get_provider_info()['provider']}")
+    data = ai_brain.complete_json(prompt, max_tokens=600)
 
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    data = json.loads(raw)
-    caption = data["caption"]
+    caption  = data["caption"]
     hashtags = data["hashtags"]
     full_post_text = caption + "\n\n" + " ".join(f"#{h.lstrip('#')}" for h in hashtags)
 
