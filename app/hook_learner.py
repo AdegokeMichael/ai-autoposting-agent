@@ -1,5 +1,5 @@
 """
-Hook Learner: closes the feedback loop between TikTok performance and Claude.
+Hook Learner — closes the feedback loop between TikTok performance and Claude.
 
 How it works:
 1. After clips are posted, you (or a cron job) call record_performance() with real stats
