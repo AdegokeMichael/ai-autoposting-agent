@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cli.py — AI Autoposting Agent command-line tool
+cli.py — MrBade AutoPoster command-line tool
 
 Usage:
   python cli.py run <video_path>           Process a video through the full pipeline
@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 def _print_header():
-    print("\n\033[1m\033[96m AI Autoposting Agent CLI\033[0m")
+    print("\n\033[1m\033[96m MrBade AutoPoster CLI\033[0m")
     print(" " + "─" * 38)
 
 
@@ -54,20 +54,20 @@ def cmd_run(args):
 
     video = args.video
     if not Path(video).exists():
-        print(f"\033[91m File not found: {video}\033[0m")
+        print(f"\033[91m❌ File not found: {video}\033[0m")
         sys.exit(1)
 
-    print(f"\n\033[1m Starting pipeline for:\033[0m {video}")
+    print(f"\n\033[1m🎬 Starting pipeline for:\033[0m {video}")
     print("   faster-whisper → Claude → FFmpeg → Captions\n")
 
     job = run_pipeline(video)
 
     if job.status == "complete":
-        print(f"\n\033[92m Done! {job.clips_found} clips generated.\033[0m")
+        print(f"\n\033[92m✅ Done! {job.clips_found} clips generated.\033[0m")
         print(f"   Clip IDs: {', '.join(job.clips_generated)}")
         print(f"\n   Review them at \033[96mhttp://localhost:8000\033[0m  or run:\033[93m python cli.py clips --status pending\033[0m\n")
     else:
-        print(f"\n\033[91m Pipeline failed: {job.error}\033[0m\n")
+        print(f"\n\033[91m❌ Pipeline failed: {job.error}\033[0m\n")
         sys.exit(1)
 
 
@@ -99,14 +99,14 @@ def cmd_approve(args):
 
     clip = storage.get_clip(args.clip_id)
     if not clip:
-        print(f"\033[91m Clip not found: {args.clip_id}\033[0m")
+        print(f"\033[91m❌ Clip not found: {args.clip_id}\033[0m")
         sys.exit(1)
     if clip.status != ClipStatus.PENDING:
-        print(f"\033[93m  Clip is {clip.status.value}, not pending.\033[0m")
+        print(f"\033[93m⚠️  Clip is {clip.status.value}, not pending.\033[0m")
         return
 
     storage.update_clip_status(args.clip_id, ClipStatus.APPROVED)
-    print(f"\033[92m Approved: {args.clip_id}\033[0m  — {clip.topic}")
+    print(f"\033[92m✅ Approved: {args.clip_id}\033[0m  — {clip.topic}")
 
 
 def cmd_reject(args):
@@ -115,10 +115,10 @@ def cmd_reject(args):
 
     clip = storage.get_clip(args.clip_id)
     if not clip:
-        print(f"\033[91m Clip not found: {args.clip_id}\033[0m")
+        print(f"\033[91m❌ Clip not found: {args.clip_id}\033[0m")
         sys.exit(1)
     storage.update_clip_status(args.clip_id, ClipStatus.REJECTED)
-    print(f"\033[91m Rejected: {args.clip_id}\033[0m")
+    print(f"\033[91m❌ Rejected: {args.clip_id}\033[0m")
 
 
 def cmd_post(args):
@@ -129,18 +129,18 @@ def cmd_post(args):
 
     clip = storage.get_clip(args.clip_id)
     if not clip:
-        print(f"\033[91m Clip not found: {args.clip_id}\033[0m")
+        print(f"\033[91m❌ Clip not found: {args.clip_id}\033[0m")
         sys.exit(1)
     if clip.status != ClipStatus.APPROVED:
-        print(f"\033[93m  Clip must be APPROVED before posting (currently: {clip.status.value})\033[0m")
+        print(f"\033[93m⚠️  Clip must be APPROVED before posting (currently: {clip.status.value})\033[0m")
         sys.exit(1)
 
-    print(f"\033[96m Posting to TikTok: {args.clip_id}\033[0m")
+    print(f"\033[96m🚀 Posting to TikTok: {args.clip_id}\033[0m")
 
     async def _post():
         result = await upload_and_post(clip.clip_path, clip.full_post_text, args.clip_id)
         storage.update_clip_status(args.clip_id, ClipStatus.POSTED, tiktok_post_id=result.get("publish_id"))
-        print(f"\033[92m Posted! TikTok publish_id: {result.get('publish_id')}\033[0m")
+        print(f"\033[92m✅ Posted! TikTok publish_id: {result.get('publish_id')}\033[0m")
 
     asyncio.run(_post())
 
@@ -158,7 +158,7 @@ def cmd_approve_all(args):
     print(f"\n  Approving {len(pending)} pending clip(s):\n")
     for c in pending:
         storage.update_clip_status(c.id, ClipStatus.APPROVED)
-        print(f"  \033[92m \033[0m  {c.id}  {c.topic[:50]}")
+        print(f"  \033[92m✅\033[0m  {c.id}  {c.topic[:50]}")
     print(f"\n  Done. Run '\033[93mpython cli.py post-approved\033[0m' to post them all.\n")
 
 
@@ -181,10 +181,10 @@ def cmd_post_approved(args):
                 print(f"  \033[96m→\033[0m  {c.id}  {c.topic[:50]}...")
                 result = await upload_and_post(c.clip_path, c.full_post_text, c.id)
                 storage.update_clip_status(c.id, ClipStatus.POSTED, tiktok_post_id=result.get("publish_id"))
-                print(f"       \033[92m Posted\033[0m  publish_id: {result.get('publish_id')}")
+                print(f"       \033[92m✅ Posted\033[0m  publish_id: {result.get('publish_id')}")
             except Exception as e:
                 storage.update_clip_status(c.id, ClipStatus.FAILED)
-                print(f"       \033[91m Failed: {e}\033[0m")
+                print(f"       \033[91m❌ Failed: {e}\033[0m")
         print()
 
     asyncio.run(_post_all())
@@ -202,7 +202,7 @@ def cmd_perf(args):
         comments=args.comments,
         watch_rate=args.watch_rate,
     )
-    print(f"\033[92m Performance recorded for {args.clip_id}\033[0m")
+    print(f"\033[92m✅ Performance recorded for {args.clip_id}\033[0m")
     print(f"   Views: {args.views:,}  |  Watch rate: {args.watch_rate:.0%}  |  Likes: {args.likes}")
     print(f"\n   Claude will use this data to improve future hook scoring.\n")
 
@@ -233,7 +233,7 @@ def cmd_analytics(args):
             topic = c['topic'][:30] + "…" if len(c['topic']) > 31 else c['topic']
             print(f"  {c['clip_id']:<16} {c['views']:>8,}  {watch:>6}  {c['hook_score']:>4}/10  {topic}")
 
-    hook_status = "\033[92mActive \033[0m" if data.get("lessons_available") else "\033[93mNeed 3+ clips with data\033[0m"
+    hook_status = "\033[92mActive ✅\033[0m" if data.get("lessons_available") else "\033[93mNeed 3+ clips with data\033[0m"
     print(f"\n  Hook Learner: {hook_status}\n")
 
 
@@ -311,6 +311,9 @@ def main():
     sub.add_parser("check", help="Run setup check")
     sub.add_parser("watch", help="Start watching the inbox folder")
 
+    # youtube-auth
+    sub.add_parser("youtube-auth", help="Authenticate with YouTube (run once)")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -329,9 +332,19 @@ def main():
         "analytics":     cmd_analytics,
         "check":         cmd_check,
         "watch":         cmd_watch,
+        "youtube-auth":  cmd_youtube_auth,
     }
     dispatch[args.command](args)
 
 
 if __name__ == "__main__":
     main()
+
+
+def cmd_youtube_auth(args):
+    """Run YouTube OAuth flow to authenticate the channel."""
+    from app.platforms.youtube import run_youtube_auth
+    run_youtube_auth()
+
+
+# Register the new command in main()
