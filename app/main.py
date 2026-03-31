@@ -295,6 +295,45 @@ async def get_ai_provider():
     return get_provider_info()
 
 
+@app.get("/gdrive/status")
+async def get_gdrive_status():
+    """Return Google Drive sync status for the dashboard."""
+    import subprocess
+    log_file = Path("logs/gdrive_sync.log")
+    seen_file = Path("logs/gdrive_seen.txt")
+
+    # Check if the sync service is running
+    result = subprocess.run(
+        ["systemctl", "is-active", "gdrive-sync"],
+        capture_output=True, text=True
+    )
+    service_active = result.stdout.strip() == "active"
+
+    # Get last few log lines
+    last_lines = []
+    if log_file.exists():
+        lines = log_file.read_text().strip().splitlines()
+        last_lines = lines[-5:] if lines else []
+
+    # Count files synced
+    files_synced = 0
+    if seen_file.exists():
+        files_synced = len([l for l in seen_file.read_text().splitlines() if l.strip()])
+
+    remote = os.getenv("GDRIVE_REMOTE", "")
+    interval = os.getenv("GDRIVE_SYNC_INTERVAL", "30")
+
+    return {
+        "service_active": service_active,
+        "remote": remote,
+        "local_folder": os.getenv("WATCH_FOLDER", ""),
+        "sync_interval_seconds": int(interval),
+        "total_files_synced": files_synced,
+        "recent_log": last_lines,
+        "configured": bool(remote),
+    }
+
+
 # ── Overlay / Brand Template ───────────────────────────────────────────────────
 
 @app.get("/overlay/config")
