@@ -1,0 +1,28 @@
+# /etc/systemd/system/gdrive-sync.service
+#
+# Managed by gdrive_setup.sh — do not edit directly.
+# To regenerate: run scripts/gdrive_setup.sh
+#
+# Commands:
+#   sudo systemctl start gdrive-sync
+#   sudo systemctl stop gdrive-sync
+#   sudo systemctl status gdrive-sync
+#   sudo journalctl -u gdrive-sync -f
+
+[Unit]
+Description=Brand Bade Poster — Google Drive Sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ai-autoposting-agent
+ExecStart=/home/ubuntu/ai-autoposting-agent/scripts/gdrive_sync.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
