@@ -32,6 +32,13 @@ Thumbs.db
 
 # Whisper model cache (downloaded automatically)
 .cache/
-
+-e 
 # Docker
 nginx/ssl/
+-e 
+# Overlay archive backups (keep template.png, ignore backups)
+overlays/template_backup_*.png
+-e 
+# Google Drive sync logs and state
+logs/
+gdrive_inbox/
