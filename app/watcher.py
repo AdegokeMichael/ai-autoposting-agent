@@ -1,5 +1,5 @@
 """
-Folder Watcher - auto-triggers the pipeline when you drop a video into the watch folder.
+Folder Watcher — auto-triggers the pipeline when you drop a video into the watch folder.
 
 Usage:
   python -m app.watcher          # runs standalone
@@ -79,9 +79,9 @@ class VideoDropHandler(FileSystemEventHandler):
             # Run pipeline
             try:
                 self.pipeline_fn(str(dest))
-                logger.info(f"[Watcher]  Pipeline complete for: {path.name}")
+                logger.info(f"[Watcher] ✅ Pipeline complete for: {path.name}")
             except Exception as e:
-                logger.error(f"[Watcher]  Pipeline failed for {path.name}: {e}")
+                logger.error(f"[Watcher] ❌ Pipeline failed for {path.name}: {e}")
             finally:
                 self._processing.discard(str(path))
 
