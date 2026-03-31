@@ -1005,6 +1005,19 @@ header{
           </div>
         </div>
 
+        <!-- Google Drive -->
+        <div class="panel">
+          <div class="panel-title">Google Drive Sync</div>
+          <div class="panel-sub">Automatically pulls videos from a Google Drive folder and triggers the pipeline. Run <code>scripts/gdrive_setup.sh</code> once to configure.</div>
+          <div id="gdriveStatusCard" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:14px;">
+            <div style="color:var(--muted);font-size:.82rem">Loading...</div>
+          </div>
+          <div style="font-size:.75rem;color:var(--muted);line-height:1.9">
+            Setup: <code>chmod +x scripts/gdrive_setup.sh && ./scripts/gdrive_setup.sh</code><br>
+            Logs: <code>sudo journalctl -u gdrive-sync -f</code>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -1368,6 +1381,26 @@ async function loadSettings(){
       ${configLabel}`;
   }catch(e){
     document.getElementById('aiProviderCard').innerHTML=`<div style="color:var(--muted);font-size:.82rem">Could not load AI provider info.</div>`;
+  }
+
+  // Load Google Drive sync status
+  try{
+    const gd=await fetch('/gdrive/status').then(r=>r.json());
+    const statusColor=gd.service_active?'var(--green)':'var(--muted)';
+    const statusDot=gd.service_active?'●':'○';
+    const statusLabel=gd.service_active?'Sync service running':'Sync service not running';
+    document.getElementById('gdriveStatusCard').innerHTML=`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="color:${statusColor};font-size:1rem">${statusDot}</span>
+        <span style="font-size:.85rem;font-weight:600;color:${statusColor}">${statusLabel}</span>
+      </div>
+      ${gd.configured?`
+        <div style="font-size:.78rem;color:var(--text2);margin-bottom:4px">Remote: <span style="font-family:'DM Mono',monospace">${gd.remote}</span></div>
+        <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px">Polls every ${gd.sync_interval_seconds}s &nbsp;·&nbsp; ${gd.total_files_synced} file(s) synced total</div>
+        ${gd.recent_log.length?`<div style="font-family:'DM Mono',monospace;font-size:.68rem;color:var(--muted);line-height:1.7;background:var(--bg);padding:8px 10px;border-radius:6px;max-height:80px;overflow-y:auto">${gd.recent_log.map(l=>l.replace(/</g,'&lt;')).join('<br>')}</div>`:''}
+      `:`<div style="font-size:.8rem;color:var(--amber)">Not configured — run <code>scripts/gdrive_setup.sh</code> to set up</div>`}`;
+  }catch(e){
+    document.getElementById('gdriveStatusCard').innerHTML=`<div style="color:var(--muted);font-size:.82rem">Google Drive sync not configured.</div>`;
   }
 }
 
