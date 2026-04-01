@@ -81,6 +81,8 @@ Identify 3-6 viral clip opportunities. For each clip:
 2. The clip should be 15-90 seconds long
 3. The clip must deliver ONE clear, valuable insight
 4. Clips can overlap in time but should be different angles/hooks
+5. You should be able to detect the end of sentences and natural breaks in the transcript to determine clip boundaries
+6. Don't cut a clip at the end when the speaker is mid-sentence or mid-thought — extend to the nearest natural break
 
 Return ONLY a valid JSON array. No explanation, no markdown, just the JSON:
 [
