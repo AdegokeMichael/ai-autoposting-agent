@@ -32,7 +32,7 @@
   --muted:    #7A6A58;
   --faint:    #3E352A;
 
-  --yt:#FF0000; --ig:#E1306C; --fb:#1877F2; --tt:#ffffff;
+  --yt:#FF0000; --ig:#E1306C; --fb:#1877F2; --tt:#ffffff; --buf:#4ECDC4;
 
   --r-sm: 10px;
   --r-md: 14px;
@@ -385,6 +385,9 @@ header{
 .platform-btn[data-p="tiktok"].selected{background:rgba(255,255,255,.08);border-color:#aaa;color:#fff;}
 .platform-btn[data-p="instagram"].selected{background:rgba(225,48,108,.12);border-color:var(--ig);color:var(--ig);}
 .platform-btn[data-p="facebook"].selected{background:rgba(24,119,242,.12);border-color:var(--fb);color:var(--fb);}
+  .platform-btn[data-p="tiktok_buffer"].selected{background:rgba(78,205,196,.12);border-color:var(--buf);color:var(--buf);}
+  .platform-btn[data-p="instagram_buffer"].selected{background:rgba(78,205,196,.12);border-color:var(--buf);color:var(--buf);}
+  .platform-btn[data-p="facebook_buffer"].selected{background:rgba(78,205,196,.12);border-color:var(--buf);color:var(--buf);}
 
 .posted-urls{margin-bottom:12px;}
 .posted-url-row{display:flex;align-items:center;gap:8px;font-size:.75rem;margin-bottom:4px;color:var(--muted);}
@@ -953,10 +956,16 @@ header{
             <span class="hl-blue"># Facebook Reels</span><br>
             FACEBOOK_ACCESS_TOKEN=...<br>
             FACEBOOK_PAGE_ID=...<br><br>
-            <span class="hl-dim"># TikTok (pending approval)</span><br>
+            <span class="hl-dim"># TikTok (pending API approval)</span><br>
             TIKTOK_ACCESS_TOKEN=...<br>
             TIKTOK_CLIENT_KEY=...<br>
-            TIKTOK_CLIENT_SECRET=...
+            TIKTOK_CLIENT_SECRET=...<br><br>
+            <span style="color:var(--buf)"># Buffer (TikTok without API approval)</span><br>
+            BUFFER_ACCESS_TOKEN=...<br>
+            BUFFER_TIKTOK_CHANNEL_ID=...<br>
+            BUFFER_INSTAGRAM_CHANNEL_ID=...<br>
+            BUFFER_FACEBOOK_CHANNEL_ID=...<br>
+            <span class="hl-dim"># Find IDs at: /buffer/channels</span>
           </div>
         </div>
 
@@ -1030,10 +1039,13 @@ header{
 let currentFilter='all', allClips=[], configuredPlatforms=[], selectedPlatforms={};
 
 const PLATFORM_META={
-  youtube:  {icon:'▶',label:'YouTube',  color:'var(--yt)'},
-  instagram:{icon:'◉',label:'Instagram',color:'var(--ig)'},
-  facebook: {icon:'f',label:'Facebook', color:'var(--fb)'},
-  tiktok:   {icon:'♪',label:'TikTok',   color:'#fff'},
+  youtube:          {icon:'▶',label:'YouTube',           color:'var(--yt)'},
+  instagram:        {icon:'◉',label:'Instagram',         color:'var(--ig)'},
+  facebook:         {icon:'f',label:'Facebook',          color:'var(--fb)'},
+  tiktok:           {icon:'♪',label:'TikTok',            color:'#fff'},
+  tiktok_buffer:    {icon:'♪',label:'TikTok (Buffer)',   color:'var(--buf)'},
+  instagram_buffer: {icon:'◉',label:'Instagram (Buffer)',color:'var(--buf)'},
+  facebook_buffer:  {icon:'f',label:'Facebook (Buffer)', color:'var(--buf)'},
 };
 
 // ── Nav ──────────────────────────────────────────────
@@ -1131,7 +1143,7 @@ function renderPlatformSelector(clipId,postedPlatforms){
   if(!configuredPlatforms.length)
     return `<div style="font-size:.75rem;color:var(--amber);margin-bottom:14px;padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:var(--r-sm)">No platforms configured — add credentials in Settings.</div>`;
 
-  const all=['youtube','instagram','facebook','tiktok'];
+  const all=['youtube','instagram','facebook','tiktok','tiktok_buffer','instagram_buffer','facebook_buffer'];
   const btns=all.map(p=>{
     const meta=PLATFORM_META[p];
     const configured=configuredPlatforms.includes(p);
