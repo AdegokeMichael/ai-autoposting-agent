@@ -139,7 +139,7 @@ CAPTION RULES:
 Return ONLY valid JSON:
 {{
   "caption": "The caption text only (no hashtags)",
-  "hashtags": ["eMigr8", "globaltalent", "talentvisa", "founder", "techtalent"]
+  "hashtags": ["startup", "globaltalent", "talentvisa", "founder", "techtalent"]
 }}
 """
 
