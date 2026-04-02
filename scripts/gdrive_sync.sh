@@ -62,4 +62,3 @@ while true; do
         done
     fi
     sleep "$INTERVAL"
-done
