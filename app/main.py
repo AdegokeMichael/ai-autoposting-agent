@@ -235,6 +235,34 @@ async def list_platforms():
     return get_platform_status()
 
 
+@app.get("/buffer/channels")
+async def list_buffer_channels():
+    """
+    List all Buffer channels connected to your account.
+    Use this to find the Channel IDs to add to .env.
+    Requires BUFFER_ACCESS_TOKEN to be set.
+    """
+    token = os.getenv("BUFFER_ACCESS_TOKEN", "")
+    if not token or token.startswith("your_"):
+        raise HTTPException(
+            400,
+            "BUFFER_ACCESS_TOKEN is not set in .env. "
+            "Add it first, then call this endpoint to find your Channel IDs."
+        )
+    from app.platforms.buffer import list_buffer_channels
+    try:
+        channels = await list_buffer_channels(token)
+        return {
+            "channels": channels,
+            "instructions": (
+                "Copy the 'id' for each channel you want to use and add to .env as: "
+                "BUFFER_TIKTOK_CHANNEL_ID, BUFFER_INSTAGRAM_CHANNEL_ID, or BUFFER_FACEBOOK_CHANNEL_ID"
+            )
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch Buffer channels: {str(e)}")
+
+
 @app.post("/clips/{clip_id}/performance")
 async def record_clip_performance(
     clip_id: str,
