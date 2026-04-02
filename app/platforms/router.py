@@ -10,15 +10,20 @@ from app.platforms.tiktok import TikTokPlatform
 from app.platforms.youtube import YouTubePlatform
 from app.platforms.instagram import InstagramPlatform
 from app.platforms.facebook import FacebookPlatform
+from app.platforms.buffer import BufferPlatform
 
 logger = logging.getLogger(__name__)
 
 # Registry of all platforms
 _PLATFORMS: dict[str, BasePlatform] = {
-    "tiktok":    TikTokPlatform(),
-    "youtube":   YouTubePlatform(),
-    "instagram": InstagramPlatform(),
-    "facebook":  FacebookPlatform(),
+    "tiktok":            TikTokPlatform(),
+    "youtube":           YouTubePlatform(),
+    "instagram":         InstagramPlatform(),
+    "facebook":          FacebookPlatform(),
+    # Buffer-routed platforms — no TikTok API approval needed
+    "tiktok_buffer":     BufferPlatform("tiktok_buffer"),
+    "instagram_buffer":  BufferPlatform("instagram_buffer"),
+    "facebook_buffer":   BufferPlatform("facebook_buffer"),
 }
 
 
