@@ -574,4 +574,3 @@ async def delete_clip(clip_id: str):
 
     logger.info(f"Clip {clip_id} deleted by user.")
     return {"status": "deleted", "clip_id": clip_id}
-
