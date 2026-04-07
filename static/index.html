@@ -32,7 +32,7 @@
   --muted:    #7A6A58;
   --faint:    #3E352A;
 
-  --yt:#FF0000; --ig:#E1306C; --fb:#1877F2; --tt:#ffffff; --buf:#4ECDC4;
+  --yt:#FF0000; --ig:#E1306C; --fb:#1877F2; --tt:#ffffff; --up:#4ECDC4;
 
   --r-sm: 10px;
   --r-md: 14px;
@@ -385,9 +385,9 @@ header{
 .platform-btn[data-p="tiktok"].selected{background:rgba(255,255,255,.08);border-color:#aaa;color:#fff;}
 .platform-btn[data-p="instagram"].selected{background:rgba(225,48,108,.12);border-color:var(--ig);color:var(--ig);}
 .platform-btn[data-p="facebook"].selected{background:rgba(24,119,242,.12);border-color:var(--fb);color:var(--fb);}
-  .platform-btn[data-p="tiktok_buffer"].selected{background:rgba(78,205,196,.12);border-color:var(--buf);color:var(--buf);}
-  .platform-btn[data-p="instagram_buffer"].selected{background:rgba(78,205,196,.12);border-color:var(--buf);color:var(--buf);}
-  .platform-btn[data-p="facebook_buffer"].selected{background:rgba(78,205,196,.12);border-color:var(--buf);color:var(--buf);}
+  .platform-btn[data-p="tiktok_uploadpost"].selected{background:rgba(78,205,196,.12);border-color:var(--up);color:var(--up);}
+  .platform-btn[data-p="instagram_uploadpost"].selected{background:rgba(78,205,196,.12);border-color:var(--up);color:var(--up);}
+  .platform-btn[data-p="facebook_uploadpost"].selected{background:rgba(78,205,196,.12);border-color:var(--up);color:var(--up);}
 
 .posted-urls{margin-bottom:12px;}
 .posted-url-row{display:flex;align-items:center;gap:8px;font-size:.75rem;margin-bottom:4px;color:var(--muted);}
@@ -960,12 +960,10 @@ header{
             TIKTOK_ACCESS_TOKEN=...<br>
             TIKTOK_CLIENT_KEY=...<br>
             TIKTOK_CLIENT_SECRET=...<br><br>
-            <span style="color:var(--buf)"># Buffer (TikTok without API approval)</span><br>
-            BUFFER_ACCESS_TOKEN=...<br>
-            BUFFER_TIKTOK_CHANNEL_ID=...<br>
-            BUFFER_INSTAGRAM_CHANNEL_ID=...<br>
-            BUFFER_FACEBOOK_CHANNEL_ID=...<br>
-            <span class="hl-dim"># Find IDs at: /buffer/channels</span>
+            <span style="color:var(--up)"># Upload-Post (TikTok without API approval)</span><br>
+            UPLOADPOST_API_KEY=your_api_key<br>
+            UPLOADPOST_PROFILE=your_profile_name<br>
+            <span class="hl-dim"># Verify: GET /uploadpost/verify</span>
           </div>
         </div>
 
@@ -1043,9 +1041,9 @@ const PLATFORM_META={
   instagram:        {icon:'◉',label:'Instagram',         color:'var(--ig)'},
   facebook:         {icon:'f',label:'Facebook',          color:'var(--fb)'},
   tiktok:           {icon:'♪',label:'TikTok',            color:'#fff'},
-  tiktok_buffer:    {icon:'♪',label:'TikTok (Buffer)',   color:'var(--buf)'},
-  instagram_buffer: {icon:'◉',label:'Instagram (Buffer)',color:'var(--buf)'},
-  facebook_buffer:  {icon:'f',label:'Facebook (Buffer)', color:'var(--buf)'},
+  tiktok_uploadpost:    {icon:'♪',label:'TikTok (Upload-Post)',    color:'var(--up)'},
+  instagram_uploadpost: {icon:'◉',label:'Instagram (Upload-Post)', color:'var(--up)'},
+  facebook_uploadpost:  {icon:'f',label:'Facebook (Upload-Post)',  color:'var(--up)'},
 };
 
 // ── Nav ──────────────────────────────────────────────
@@ -1106,8 +1104,82 @@ async function loadPlatforms(){
 }
 
 // ── Clips ─────────────────────────────────────────────
+// Track last known state per clip to avoid unnecessary re-renders
+const _clipStateCache = {};
+
 async function loadClips(){
-  try{const r=await fetch('/clips');allClips=await r.json();renderClips();}catch(e){}
+  try{
+    const r=await fetch('/clips');
+    const fresh=await r.json();
+
+    // Detect new clips (not in allClips yet) so we can animate them in
+    const existingIds=new Set(allClips.map(c=>c.id));
+    const newIds=new Set(fresh.map(c=>c.id));
+
+    allClips=fresh;
+
+    // If filter changed or grid is empty just do a full render
+    const grid=document.getElementById('clipsGrid');
+    const hasCards=grid.querySelector('.clip-card');
+    if(!hasCards){ renderClips(); return; }
+
+    // Smart update: patch only what changed
+    _patchClipGrid(existingIds, newIds);
+  }catch(e){}
+}
+
+function _patchClipGrid(existingIds, newIds){
+  const grid=document.getElementById('clipsGrid');
+  let clips=currentFilter==='all'?allClips:allClips.filter(c=>c.status===currentFilter);
+
+  if(!clips.length){ renderClips(); return; }
+
+  // Remove cards that no longer exist in the filtered list
+  const visibleIds=new Set(clips.map(c=>c.id));
+  grid.querySelectorAll('.clip-card[data-clip-id]').forEach(card=>{
+    if(!visibleIds.has(card.dataset.clipId)) card.remove();
+  });
+
+  // Update or insert each clip
+  clips.forEach((clip, i) => {
+    const existing = grid.querySelector(`.clip-card[data-clip-id="${clip.id}"]`);
+    const cacheKey = clip.id;
+    const newState = clip.status + '|' + (clip.post_ids ? JSON.stringify(clip.post_ids) : '');
+    const oldState = _clipStateCache[cacheKey];
+
+    if (!existing) {
+      // New card — insert it
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = renderCard(clip, i);
+      const card = wrapper.firstElementChild;
+      grid.appendChild(card);
+      _clipStateCache[cacheKey] = newState;
+      return;
+    }
+
+    // Card exists — only update if something meaningful changed
+    if (oldState === newState) return;
+
+    // Check if video in this card is currently playing — if so, never touch it
+    const video = existing.querySelector('video');
+    if (video && !video.paused) {
+      // Only update the status badge, nothing else
+      const badge = existing.querySelector('.clip-status-badge');
+      if (badge) {
+        badge.className = `clip-status-badge badge-${clip.status}`;
+        badge.textContent = clip.status[0].toUpperCase() + clip.status.slice(1);
+      }
+      _clipStateCache[cacheKey] = newState;
+      return;
+    }
+
+    // Safe to update — replace only the card body (not the video wrap)
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = renderCard(clip, i);
+    const newCard = wrapper.firstElementChild;
+    existing.replaceWith(newCard);
+    _clipStateCache[cacheKey] = newState;
+  });
 }
 
 function setFilter(f,btn){
@@ -1131,6 +1203,10 @@ function renderClips(){
     return;
   }
   grid.innerHTML=clips.map((c,i)=>renderCard(c,i)).join('');
+  // Seed the cache after a full render
+  clips.forEach(c=>{
+    _clipStateCache[c.id]=c.status+'|'+(c.post_ids?JSON.stringify(c.post_ids):'');
+  });
 }
 
 function hookScoreClass(score){
@@ -1143,7 +1219,7 @@ function renderPlatformSelector(clipId,postedPlatforms){
   if(!configuredPlatforms.length)
     return `<div style="font-size:.75rem;color:var(--amber);margin-bottom:14px;padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:var(--r-sm)">No platforms configured — add credentials in Settings.</div>`;
 
-  const all=['youtube','instagram','facebook','tiktok','tiktok_buffer','instagram_buffer','facebook_buffer'];
+  const all=['youtube','instagram','facebook','tiktok','tiktok_uploadpost','instagram_uploadpost','facebook_uploadpost'];
   const btns=all.map(p=>{
     const meta=PLATFORM_META[p];
     const configured=configuredPlatforms.includes(p);
@@ -1205,7 +1281,7 @@ function renderCard(clip,i){
       <div style="text-align:center;margin-top:4px"><a href="#" style="font-size:.75rem" onclick="gotoPerf('${clip.id}');return false">Record performance stats →</a></div>`;
   }
 
-  return `<div class="clip-card" style="animation-delay:${i*.04}s">
+  return `<div class="clip-card" data-clip-id="${clip.id}" style="animation-delay:${i*.04}s">
     <div class="clip-video-wrap">
       <video src="/clips/${clip.id}/video" preload="metadata" controls muted playsinline></video>
       <span class="clip-status-badge badge-${clip.status}">${clip.status[0].toUpperCase()+clip.status.slice(1)}</span>
@@ -1516,7 +1592,8 @@ function toast(msg,type='success'){
 // ── Init ──────────────────────────────────────────────
 async function init(){await loadPlatforms();await loadClips();}
 init();
-setInterval(async()=>{await loadPlatforms();await loadClips();},10000);
+setInterval(async()=>{await loadPlatforms();await loadClips();},20000);
 </script>
 </body>
 </html>
+
