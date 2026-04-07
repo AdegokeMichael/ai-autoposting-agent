@@ -235,32 +235,35 @@ async def list_platforms():
     return get_platform_status()
 
 
-@app.get("/buffer/channels")
-async def list_buffer_channels():
+@app.get("/uploadpost/verify")
+async def verify_uploadpost():
     """
-    List all Buffer channels connected to your account.
-    Use this to find the Channel IDs to add to .env.
-    Requires BUFFER_ACCESS_TOKEN to be set.
+    Verify your Upload-Post API key and profile are configured correctly.
+    Returns account info if the key is valid.
     """
-    token = os.getenv("BUFFER_ACCESS_TOKEN", "")
-    if not token or token.startswith("your_"):
-        raise HTTPException(
-            400,
-            "BUFFER_ACCESS_TOKEN is not set in .env. "
-            "Add it first, then call this endpoint to find your Channel IDs."
+    api_key = os.getenv("UPLOADPOST_API_KEY", "")
+    if not api_key or api_key.startswith("your_"):
+        raise HTTPException(400, "UPLOADPOST_API_KEY is not set in .env")
+
+    import httpx
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            "https://api.upload-post.com/api/uploadposts/me",
+            headers={"Authorization": f"Apikey {api_key}"},
         )
-    from app.platforms.buffer import list_buffer_channels
-    try:
-        channels = await list_buffer_channels(token)
+
+    if r.status_code == 200:
+        data = r.json()
         return {
-            "channels": channels,
-            "instructions": (
-                "Copy the 'id' for each channel you want to use and add to .env as: "
-                "BUFFER_TIKTOK_CHANNEL_ID, BUFFER_INSTAGRAM_CHANNEL_ID, or BUFFER_FACEBOOK_CHANNEL_ID"
-            )
+            "status":  "ok",
+            "message": "Upload-Post API key is valid.",
+            "account": data,
         }
-    except Exception as e:
-        raise HTTPException(500, f"Failed to fetch Buffer channels: {str(e)}")
+    else:
+        raise HTTPException(
+            r.status_code,
+            f"Upload-Post API key rejected ({r.status_code}): {r.text[:200]}"
+        )
 
 
 @app.post("/clips/{clip_id}/performance")
@@ -571,3 +574,4 @@ async def delete_clip(clip_id: str):
 
     logger.info(f"Clip {clip_id} deleted by user.")
     return {"status": "deleted", "clip_id": clip_id}
+
