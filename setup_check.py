@@ -21,10 +21,10 @@ CYAN   = "\033[96m"
 BOLD   = "\033[1m"
 RESET  = "\033[0m"
 
-ok    = f"{GREEN} {RESET}"
-fail  = f"{RED} {RESET}"
-warn  = f"{YELLOW}  {RESET}"
-info  = f"{CYAN}ℹ {RESET}"
+ok    = f"{GREEN}✅{RESET}"
+fail  = f"{RED}❌{RESET}"
+warn  = f"{YELLOW}⚠️ {RESET}"
+info  = f"{CYAN}ℹ️ {RESET}"
 
 errors = 0
 warnings = 0
@@ -152,15 +152,16 @@ except Exception as e:
 # ── Summary ───────────────────────────────────────────────────────────────────
 print("\n" + "=" * 45)
 if errors == 0 and warnings == 0:
-    print(f"{GREEN}{BOLD} All checks passed! You're ready to run.{RESET}")
+    print(f"{GREEN}{BOLD}✅ All checks passed! You're ready to run.{RESET}")
     print(f"\n   {CYAN}python run.py{RESET}\n")
 elif errors == 0:
-    print(f"{YELLOW}{BOLD} Setup complete with {warnings} warning(s).{RESET}")
+    print(f"{YELLOW}{BOLD}⚠️  Setup complete with {warnings} warning(s).{RESET}")
     print(f"   TikTok posting won't work until you add your access token.")
     print(f"\n   {CYAN}python run.py{RESET}\n")
 else:
-    print(f"{RED}{BOLD} {errors} error(s) found. Fix them before running.{RESET}")
+    print(f"{RED}{BOLD}❌ {errors} error(s) found. Fix them before running.{RESET}")
     if warnings:
         print(f"{YELLOW}   {warnings} warning(s) also found.{RESET}")
     print()
     sys.exit(1)
+
