@@ -76,9 +76,9 @@ TIMESTAMPED TRANSCRIPT:
 {timestamped}
 
 YOUR TASK:
-Identify 3-6 viral clip opportunities. For each clip:
+Identify at least 4 viral clip opportunities. For each clip:
 1. Find a segment where the hook (first sentence spoken) is STRONG
-2. The clip should be 15-90 seconds long
+2. The clip should be AT LEAST 30 seconds long
 3. The clip must deliver ONE clear, valuable insight
 4. Clips can overlap in time but should be different angles/hooks
 5. You should be able to detect the end of sentences and natural breaks in the transcript to determine clip boundaries

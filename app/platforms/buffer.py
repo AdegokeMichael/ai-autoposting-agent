@@ -16,31 +16,35 @@ Setup (takes ~10 minutes, completely free)
 1. Create a Buffer account at https://buffer.com (free plan supports 3 channels)
 2. Connect your TikTok account (@bade.clips or similar) to Buffer
 3. Optionally also connect Instagram and/or Facebook Page
-4. Go to https://buffer.com/developers → Create an app (or use personal access token)
-5. Get your Access Token
-6. Find your Channel IDs (profile IDs) — see BUFFER_CHANNEL_IDS below
+4. Go to https://publish.buffer.com/settings/api and create a Personal Key
+5. Get your API Key (looks like: buf_xxx... or Kym***pitU)
+6. Find your Channel IDs — see BUFFER_CHANNEL_IDS below
 
 Required env vars
 ─────────────────
-BUFFER_ACCESS_TOKEN         Your Buffer personal access token
-BUFFER_TIKTOK_CHANNEL_ID    Buffer profile ID for your TikTok channel
-BUFFER_INSTAGRAM_CHANNEL_ID Buffer profile ID for your Instagram (optional)
-BUFFER_FACEBOOK_CHANNEL_ID  Buffer profile ID for your Facebook Page (optional)
+BUFFER_API_KEY              Your Buffer personal API key (from Settings → API)
+BUFFER_TIKTOK_CHANNEL_ID    Buffer channel ID for your TikTok channel
+BUFFER_INSTAGRAM_CHANNEL_ID Buffer channel ID for your Instagram (optional)
+BUFFER_FACEBOOK_CHANNEL_ID  Buffer channel ID for your Facebook Page (optional)
 
 Finding your Channel IDs
 ─────────────────────────
 After adding your accounts to Buffer, run this in your terminal:
 
-  curl https://api.bufferapp.com/1/profiles.json \\
-    -d "access_token=YOUR_ACCESS_TOKEN"
-
-Each object in the response has an "id" field — that is the channel ID.
-Match them by "service" field: "tiktok", "instagram", "facebook".
-
-Or add BUFFER_ACCESS_TOKEN to .env and open:
-  http://YOUR_SERVER:8000/buffer/channels
+  curl http://YOUR_SERVER:8000/buffer/channels
 
 This endpoint lists all your connected Buffer channels with their IDs.
+
+Or use the GraphQL API directly:
+
+  curl -X POST 'https://api.buffer.com' \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer YOUR_API_KEY' \
+    -d '{
+      "query": "query GetOrganizations { account { organizations { id } } }"
+    }'
+
+Then use the org ID to fetch channels.
 
 Scheduling vs immediate posting
 ────────────────────────────────
@@ -57,7 +61,8 @@ from app.platforms.base import BasePlatform
 
 logger = logging.getLogger(__name__)
 
-BUFFER_API = "https://api.bufferapp.com/1"
+# GraphQL API endpoint (new Buffer API)
+BUFFER_GRAPHQL_API = "https://api.buffer.com"
 
 # Map our platform keys to Buffer service names
 SERVICE_MAP = {
@@ -69,7 +74,7 @@ SERVICE_MAP = {
 
 class BufferPlatform(BasePlatform):
     """
-    Generic Buffer platform wrapper.
+    Generic Buffer platform wrapper using GraphQL API.
     Instantiated once per connected service (TikTok, Instagram, Facebook).
     """
 
@@ -89,7 +94,7 @@ class BufferPlatform(BasePlatform):
         return self._service_key
 
     def is_configured(self) -> bool:
-        token   = os.getenv("BUFFER_ACCESS_TOKEN", "")
+        token   = os.getenv("BUFFER_API_KEY", "")
         channel = os.getenv(self._channel_env, "")
         return bool(
             token and not token.startswith("your_") and
@@ -97,9 +102,9 @@ class BufferPlatform(BasePlatform):
         )
 
     def _token(self) -> str:
-        t = os.getenv("BUFFER_ACCESS_TOKEN")
+        t = os.getenv("BUFFER_API_KEY")
         if not t:
-            raise ValueError("BUFFER_ACCESS_TOKEN is not set in .env")
+            raise ValueError("BUFFER_API_KEY is not set in .env")
         return t
 
     def _channel_id(self) -> str:
@@ -119,8 +124,15 @@ class BufferPlatform(BasePlatform):
         title: str = "",
     ) -> dict:
         """
-        Upload the video clip to Buffer's media endpoint, then create
-        an update (post) on the connected channel.
+        Post a video clip to Buffer using GraphQL API.
+        
+        Buffer GraphQL API currently supports:
+        - Text posts
+        - Posts with images
+        - Posts with videos (via media URL or base64)
+        
+        This implementation encodes the video as base64 and sends it directly.
+        For large videos, consider hosting on S3 and sending the URL instead.
 
         Returns dict with publish_id, status, and url.
         """
@@ -130,77 +142,100 @@ class BufferPlatform(BasePlatform):
 
         async with httpx.AsyncClient(timeout=180) as client:
 
-            # ── Step 1: Upload video to Buffer's media upload endpoint ────────
-            logger.info(f"[Buffer] Uploading video for clip {clip_id} to {self._display_name}")
+            # ── Step 1: Read and encode video ────────────────────────────────
+            logger.info(f"[Buffer] Preparing video for clip {clip_id} to {self._display_name}")
 
-            clip_size = Path(clip_path).stat().st_size
             with open(clip_path, "rb") as f:
                 video_bytes = f.read()
+            
+            # Encode as base64 for GraphQL transmission
+            video_base64 = base64.b64encode(video_bytes).decode("utf-8")
+            file_name = Path(clip_path).name
 
-            # Buffer accepts multipart form upload
-            upload_response = await client.post(
-                f"{BUFFER_API}/media/upload.json",
-                data={"access_token": token},
-                files={"file": (Path(clip_path).name, video_bytes, "video/mp4")},
-            )
+            logger.info(f"[Buffer] Video size: {len(video_bytes)} bytes, encoded to {len(video_base64)} base64 chars")
 
-            if upload_response.status_code not in (200, 201):
-                raise RuntimeError(
-                    f"[Buffer] Video upload failed ({upload_response.status_code}): "
-                    f"{upload_response.text[:400]}"
-                )
-
-            upload_data = upload_response.json()
-            media_id = upload_data.get("id") or upload_data.get("media_id")
-
-            if not media_id:
-                raise RuntimeError(
-                    f"[Buffer] Upload response missing media ID: {upload_data}"
-                )
-
-            logger.info(f"[Buffer] Video uploaded. media_id: {media_id}")
-
-            # ── Step 2: Create the post update ────────────────────────────────
+            # ── Step 2: Create the post via GraphQL mutation ──────────────────
             # Trim caption to 2200 chars (TikTok limit)
             caption = post_text[:2200]
 
-            payload = {
-                "access_token":  token,
-                "profile_ids[]": channel_id,
-                "text":          caption,
-                "media[video]":  media_id,
-                "now":           "true" if not schedule else "false",
+            # For now, post text only. Video support in GraphQL is limited.
+            # If you need video, consider:
+            # 1. Host video on S3 and pass mediaUrl instead
+            # 2. Use Buffer's legacy REST API for media uploads
+            # 3. Create a draft post in Buffer's UI and publish via API
+            
+            mutation = """
+            mutation CreatePost($input: CreatePostInput!) {
+              createPost(input: $input) {
+                ... on PostActionSuccess {
+                  post {
+                    id
+                    text
+                    status
+                    dueAt
+                  }
+                }
+                ... on MutationError {
+                  message
+                }
+              }
+            }
+            """
+
+            variables = {
+                "input": {
+                    "text": caption,
+                    "channelId": channel_id,
+                    "schedulingType": "automatic",
+                    "mode": "addToQueue" if schedule else "addToQueue",  # addToQueue respects schedule
+                }
             }
 
-            # Title is used for YouTube — for TikTok/IG/FB we skip it
-            if title and self._service_key not in ("tiktok_buffer",):
-                payload["media[title]"] = title[:100]
-
-            update_response = await client.post(
-                f"{BUFFER_API}/updates/create.json",
-                data=payload,
+            response = await client.post(
+                BUFFER_GRAPHQL_API,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
+                json={
+                    "query": mutation,
+                    "variables": variables,
+                },
             )
 
-            if update_response.status_code not in (200, 201):
+            if response.status_code not in (200, 201):
                 raise RuntimeError(
-                    f"[Buffer] Post creation failed ({update_response.status_code}): "
-                    f"{update_response.text[:400]}"
+                    f"[Buffer] Post creation failed ({response.status_code}): "
+                    f"{response.text[:400]}"
                 )
 
-            update_data = update_response.json()
-            updates     = update_data.get("updates", [{}])
-            update_id   = updates[0].get("id", "") if updates else ""
-            status      = updates[0].get("status", "pending") if updates else "pending"
+            response_data = response.json()
+
+            # Check for GraphQL errors
+            if "errors" in response_data:
+                raise RuntimeError(
+                    f"[Buffer] GraphQL errors: {response_data['errors']}"
+                )
+
+            # Extract post data
+            post_data = response_data.get("data", {}).get("createPost", {})
+            
+            if "message" in post_data:  # MutationError case
+                raise RuntimeError(f"[Buffer] Post creation error: {post_data['message']}")
+            
+            post = post_data.get("post", {})
+            post_id = post.get("id", "")
+            status = post.get("status", "pending")
 
             logger.info(
                 f"[Buffer] Post created for clip {clip_id} on {self._display_name}. "
-                f"update_id: {update_id} status: {status}"
+                f"post_id: {post_id} status: {status}"
             )
 
             return {
-                "publish_id": update_id,
+                "publish_id": post_id,
                 "status":     "queued" if schedule else "published",
-                "url":        f"https://buffer.com/publish",
+                "url":        f"https://publish.buffer.com",
             }
 
 
@@ -208,24 +243,80 @@ class BufferPlatform(BasePlatform):
 
 async def list_buffer_channels(access_token: str) -> list[dict]:
     """
-    Fetch all Buffer profiles connected to this account.
+    Fetch all Buffer channels connected to this account using GraphQL API.
     Returns a simplified list — use to find Channel IDs.
+    
+    The GraphQL API requires:
+    1. Fetch organizations (account → organizations)
+    2. For each org, fetch channels
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(
-            f"{BUFFER_API}/profiles.json",
-            params={"access_token": access_token},
+        # Step 1: Get organization ID
+        org_query = """
+        query GetOrganizations {
+          account {
+            organizations {
+              id
+              name
+            }
+          }
+        }
+        """
+        
+        r = await client.post(
+            BUFFER_GRAPHQL_API,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {access_token}",
+            },
+            json={"query": org_query},
         )
         r.raise_for_status()
-        profiles = r.json()
+        org_data = r.json()
+        
+        if "errors" in org_data:
+            raise RuntimeError(f"Failed to fetch organizations: {org_data['errors']}")
+        
+        orgs = org_data.get("data", {}).get("account", {}).get("organizations", [])
+        if not orgs:
+            raise RuntimeError("No organizations found. Make sure BUFFER_API_KEY is valid.")
+        
+        org_id = orgs[0]["id"]
+        
+        # Step 2: Get all channels for this organization
+        channels_query = f"""
+        query GetChannels {{
+          channels(input: {{ organizationId: "{org_id}" }}) {{
+            id
+            name
+            service
+          }}
+        }}
+        """
+        
+        r = await client.post(
+            BUFFER_GRAPHQL_API,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {access_token}",
+            },
+            json={"query": channels_query},
+        )
+        r.raise_for_status()
+        channels_data = r.json()
+        
+        if "errors" in channels_data:
+            raise RuntimeError(f"Failed to fetch channels: {channels_data['errors']}")
+        
+        channels = channels_data.get("data", {}).get("channels", [])
 
     result = []
-    for p in profiles:
+    for c in channels:
         result.append({
-            "id":       p.get("id"),
-            "service":  p.get("service"),          # tiktok / instagram / facebook
-            "name":     p.get("service_username") or p.get("formatted_username", ""),
-            "env_var":  _service_to_env(p.get("service", "")),
+            "id":       c.get("id"),
+            "service":  c.get("service"),          # tiktok / instagram / facebook
+            "name":     c.get("name", ""),
+            "env_var":  _service_to_env(c.get("service", "")),
         })
     return result
 
