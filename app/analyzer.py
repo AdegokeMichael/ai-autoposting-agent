@@ -76,13 +76,18 @@ TIMESTAMPED TRANSCRIPT:
 {timestamped}
 
 YOUR TASK:
-Identify at least 4 viral clip opportunities. For each clip:
+Identify at least 3 viral clip opportunities. For each clip:
 1. Find a segment where the hook (first sentence spoken) is STRONG
-2. The clip should be AT LEAST 30 seconds long
-3. The clip must deliver ONE clear, valuable insight
-4. Clips can overlap in time but should be different angles/hooks
-5. You should be able to detect the end of sentences and natural breaks in the transcript to determine clip boundaries
-6. Don't cut a clip at the end when the speaker is mid-sentence or mid-thought — extend to the nearest natural break
+2. STRICT DURATION RULE: end_time - start_time MUST be >= 30 seconds. No exceptions.
+   Before finalising each clip, verify: (end_time - start_time) >= 30.
+   If any clip is shorter than 30 seconds, extend end_time until it is at least 30 seconds.
+   The viewer needs enough context to understand the point being made.
+   A clip that cuts off before the key insight lands is worthless.
+   IDEAL: 45-75 seconds. ABSOLUTE MINIMUM: 30 seconds.
+3. The clip must deliver ONE complete, valuable insight — not just the start of one.
+   Include enough speech that the point is fully made and lands clearly.
+4. Extend end_time generously — better to run a few seconds long than cut too early.
+5. Clips can overlap in time but should be different angles/hooks
 
 Return ONLY a valid JSON array. No explanation, no markdown, just the JSON:
 [
@@ -139,7 +144,7 @@ CAPTION RULES:
 Return ONLY valid JSON:
 {{
   "caption": "The caption text only (no hashtags)",
-  "hashtags": ["startup", "globaltalent", "talentvisa", "founder", "techtalent"]
+  "hashtags": ["startup", "globaltalent", "talentvisa", "founder", "africaintech"]
 }}
 """
 
