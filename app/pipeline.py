@@ -2,6 +2,7 @@
 Pipeline orchestrator.
 Runs the full flow: transcribe → analyze → cut → caption → store
 """
+import os
 import uuid
 import logging
 from datetime import datetime
@@ -47,6 +48,17 @@ def run_pipeline(video_path: str) -> PipelineJob:
         logger.info(f"[Job {job_id}] Claude analyzing for viral clips...")
         clip_candidates = find_viral_clips(full_text, segments, duration)
         logger.info(f"[Job {job_id}] Found {len(clip_candidates)} clip candidates")
+
+        # Enforce minimum clip duration — extend any short clips
+        MIN_DURATION = float(os.getenv("MIN_CLIP_DURATION", "40"))
+        for c in clip_candidates:
+            clip_len = c.end_time - c.start_time
+            if clip_len < MIN_DURATION:
+                logger.warning(
+                    f"[Job {job_id}] Clip '{c.topic}' is only {clip_len:.1f}s — "
+                    f"extending end_time to meet {MIN_DURATION}s minimum"
+                )
+                c.end_time = min(c.start_time + MIN_DURATION, duration)
 
         # ── Step 4: Cut each clip + write captions ───────
         generated_clip_ids = []
