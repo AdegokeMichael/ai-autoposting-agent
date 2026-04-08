@@ -1215,24 +1215,51 @@ function hookScoreClass(score){
   return 'score-high';
 }
 
-function renderPlatformSelector(clipId,postedPlatforms){
+function renderPlatformActionBtns(clipId, postedIds, status){
+  // No platforms configured at all
   if(!configuredPlatforms.length)
-    return `<div style="font-size:.75rem;color:var(--amber);margin-bottom:14px;padding:8px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:var(--r-sm)">No platforms configured — add credentials in Settings.</div>`;
+    return `<div style="font-size:.75rem;color:var(--amber);padding:10px 12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:var(--r-sm);grid-column:1/-1">
+      No platforms configured — see Settings for setup guide.
+    </div>`;
 
   const all=['youtube','instagram','facebook','tiktok','tiktok_uploadpost','instagram_uploadpost','facebook_uploadpost'];
-  const btns=all.map(p=>{
+  const available=all.filter(p=>configuredPlatforms.includes(p)&&!postedIds[p]);
+  const posted=all.filter(p=>postedIds[p]);
+
+  if(!available.length && posted.length)
+    return `<div style="font-size:.75rem;color:var(--green);padding:8px 0;grid-column:1/-1">✓ Posted to all configured platforms</div>`;
+
+  const isPending = status==='pending';
+  const approveVerb = isPending ? 'Approve & Post' : 'Post';
+
+  // Individual platform buttons
+  const perPlatform = available.map(p=>{
     const meta=PLATFORM_META[p];
-    const configured=configuredPlatforms.includes(p);
-    const alreadyPosted=postedPlatforms&&postedPlatforms[p];
-    let cls='platform-btn';
-    let extra='';
-    if(!configured){cls+=' disabled';extra=`title="Not configured"`;}
-    else if(alreadyPosted){cls+=' posted-platform';extra=`title="Already posted"`;}
-    else if((selectedPlatforms[clipId]||configuredPlatforms[0])===p){cls+=' selected';}
-    const tick=alreadyPosted?' ✓':'';
-    return `<button class="${cls}" data-p="${p}" ${extra} onclick="selectPlatform('${clipId}','${p}',this)">${meta.icon} ${meta.label}${tick}</button>`;
+    const action = isPending
+      ? `approveAndPostTo('${clipId}','${p}')`
+      : `postClipTo('${clipId}','${p}')`;
+    return `<button class="btn btn-approve" style="flex:1;min-width:120px;font-size:.72rem" onclick="${action}">
+      ${meta.icon} ${approveVerb} to ${meta.label.replace(' (Upload-Post)','').replace(' (Buffer)','')}
+    </button>`;
   }).join('');
-  return `<div class="platform-selector"><div class="platform-label">Post to</div><div class="platform-btns">${btns}</div></div>`;
+
+  // "Post to all" button — only show if 2+ platforms available
+  const allBtn = available.length>=2
+    ? `<button class="btn btn-post" style="grid-column:1/-1" onclick="${isPending?`approveAndPostAll('${clipId}')`:`postAllPlatforms('${clipId}')`}">
+        🚀 ${approveVerb} to All (${available.length})
+      </button>`
+    : '';
+
+  // If pending, also show standalone Approve (no post)
+  const approveOnly = isPending
+    ? `<button class="btn btn-ghost" style="font-size:.75rem" onclick="approveClip('${clipId}')">✓ Approve only</button>`
+    : '';
+
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;grid-column:1/-1;align-items:center">
+    ${perPlatform}
+    ${approveOnly}
+  </div>
+  ${allBtn}`;
 }
 
 function renderPostedUrls(postUrls){
@@ -1244,40 +1271,38 @@ function renderPostedUrls(postUrls){
   return `<div class="posted-urls">${rows}</div>`;
 }
 
-function selectPlatform(clipId,platform,btn){
-  if(btn.classList.contains('disabled')||btn.classList.contains('posted-platform')) return;
-  selectedPlatforms[clipId]=platform;
-  btn.closest('.platform-btns').querySelectorAll('.platform-btn').forEach(b=>{
-    b.classList.remove('selected');
-    if(b.dataset.p===platform&&!b.classList.contains('disabled')&&!b.classList.contains('posted-platform'))
-      b.classList.add('selected');
-  });
-}
-
 function renderCard(clip,i){
-  const ht=clip.hashtags.map(h=>`<span class="hashtag">#${h.replace(/^#/,'')}</span>`).join('');
   const postUrls=clip.post_urls||{};
   const postIds=clip.post_ids||{};
   let actions='';
 
   if(!selectedPlatforms[clip.id]) selectedPlatforms[clip.id]=configuredPlatforms[0]||'youtube';
 
+  // ── Caption + hashtag editor (always editable, all statuses) ──────────────
+  const captionBlock=`
+    <div class="caption-area">
+      <div class="caption-label" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Caption</span>
+        ${clip.status!=='pending'?`<button class="btn btn-ghost" style="padding:3px 10px;font-size:.68rem" onclick="saveCaption('${clip.id}')">Save edits</button>`:''}
+      </div>
+      <textarea class="caption-edit" id="cap-${clip.id}" style="min-height:${clip.status==='pending'?'80':'60'}px">${clip.caption}</textarea>
+    </div>
+    <div style="margin-bottom:12px">
+      <div class="caption-label" style="margin-bottom:6px">Hashtags <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(space-separated)</span></div>
+      <input class="caption-edit" id="hash-${clip.id}" value="${clip.hashtags.map(h=>h.replace(/^#/,'')).join(' ')}" style="width:100%;resize:none;font-size:.78rem;padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text);" placeholder="startup talentvisa founder" />
+    </div>`;
+
+  // ── Per-platform action buttons ────────────────────────────────────────────
+  const platformActionBtns = renderPlatformActionBtns(clip.id, postIds, clip.status);
+
   if(clip.status==='pending'){
-    actions=`${renderPlatformSelector(clip.id,postIds)}
-      <button class="btn btn-approve" onclick="approveClip('${clip.id}')">Approve</button>
-      <button class="btn btn-reject" onclick="rejectClip('${clip.id}')">Reject</button>
-      <button class="btn btn-post" onclick="approveAndPost('${clip.id}')">🚀 Approve &amp; Post Now</button>`;
+    actions=`${platformActionBtns}
+      <button class="btn btn-reject" onclick="rejectClip('${clip.id}')" style="grid-column:1/-1;background:transparent;border-color:rgba(239,68,68,.2)">Reject</button>`;
   }else if(clip.status==='approved'){
-    actions=`${renderPlatformSelector(clip.id,postIds)}
-      <button class="btn btn-post" onclick="postClip('${clip.id}')">🚀 Post Now</button>`;
+    actions=platformActionBtns;
   }else if(clip.status==='posted'){
     const remaining=configuredPlatforms.filter(p=>!postIds[p]);
-    let moreBtn='';
-    if(remaining.length){
-      if(!selectedPlatforms[clip.id]||postIds[selectedPlatforms[clip.id]]) selectedPlatforms[clip.id]=remaining[0];
-      moreBtn=`${renderPlatformSelector(clip.id,postIds)}<button class="btn btn-post" onclick="postClip('${clip.id}')">🚀 Post to Another Platform</button>`;
-    }
-    actions=`${renderPostedUrls(postUrls)}${moreBtn}
+    actions=`${renderPostedUrls(postUrls)}${remaining.length?platformActionBtns:''}
       <div style="text-align:center;margin-top:4px"><a href="#" style="font-size:.75rem" onclick="gotoPerf('${clip.id}');return false">Record performance stats →</a></div>`;
   }
 
@@ -1295,13 +1320,7 @@ function renderCard(clip,i){
         <span class="meta-pill">${fmtT(clip.start_time)} → ${fmtT(clip.end_time)}</span>
         <span class="meta-pill">${clip.id}</span>
       </div>
-      <div class="caption-area">
-        <div class="caption-label">Caption</div>
-        ${clip.status==='pending'
-          ?`<textarea class="caption-edit" id="cap-${clip.id}">${clip.caption}</textarea>`
-          :`<div class="caption-text">${clip.caption}</div>`}
-      </div>
-      <div class="hashtags">${ht}</div>
+      ${captionBlock}
       <div class="clip-actions">${actions}</div>
       <div class="clip-footer">
         <button class="btn btn-download" onclick="downloadVideo('${clip.id}')">⬇ Video</button>
@@ -1313,32 +1332,87 @@ function renderCard(clip,i){
 }
 
 // ── Actions ───────────────────────────────────────────
-async function approveClip(id){
-  const el=document.getElementById(`cap-${id}`);
-  const res=await fetch(`/clips/${id}/approve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(el?{caption:el.value}:{})});
-  if(res.ok){toast('Clip approved.','success');await loadClips();}else toast('Failed to approve.','error');
+
+// Collect edited caption + hashtags from the card
+function _getEdits(id){
+  const capEl  = document.getElementById(`cap-${id}`);
+  const hashEl = document.getElementById(`hash-${id}`);
+  const caption  = capEl  ? capEl.value.trim()  : null;
+  const hashRaw  = hashEl ? hashEl.value.trim() : null;
+  const hashtags = hashRaw ? hashRaw.split(/\s+/).filter(Boolean).map(h=>h.replace(/^#/,'')) : null;
+  return {caption, hashtags};
 }
+
+async function saveCaption(id){
+  const {caption,hashtags}=_getEdits(id);
+  const res=await fetch(`/clips/${id}/approve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caption,hashtags})});
+  if(res.ok) toast('Caption saved.','success');
+  else toast('Save failed.','error');
+}
+
+async function approveClip(id){
+  const {caption,hashtags}=_getEdits(id);
+  const body={};
+  if(caption) body.caption=caption;
+  if(hashtags) body.hashtags=hashtags;
+  const res=await fetch(`/clips/${id}/approve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(res.ok){toast('Clip approved.','success');await loadClips();}
+  else toast('Failed to approve.','error');
+}
+
 async function rejectClip(id){
   if(!confirm('Reject this clip?')) return;
   const res=await fetch(`/clips/${id}/reject`,{method:'POST'});
   if(res.ok){toast('Clip rejected.','success');await loadClips();}
 }
-async function postClip(id){
-  const platform=selectedPlatforms[id]||configuredPlatforms[0]||'youtube';
+
+async function _doPost(id, platform){
   const meta=PLATFORM_META[platform];
-  toast(`Posting to ${meta?.label||platform}...`,'success');
+  const label=(meta?.label||platform).replace(' (Upload-Post)','').replace(' (Buffer)','');
+  toast(`Posting to ${label}...`,'success');
   const res=await fetch(`/clips/${id}/post?platform=${platform}`,{method:'POST'});
   if(res.ok){
     const data=await res.json();
-    toast(`Posted to ${data.platform}.`,'success');
-    if(data.url) setTimeout(()=>window.open(data.url,'_blank'),800);
+    toast(`Posted to ${label} ✓`,'success');
+    if(data.url&&data.url!=='https://upload-post.com') setTimeout(()=>window.open(data.url,'_blank'),800);
     await loadClips();
+    return true;
   }else{
     const d=await res.json().catch(()=>({}));
-    toast('Post failed: '+(d.detail||'error'),'error');
+    toast(`${label} failed: `+(d.detail||'error'),'error');
+    return false;
   }
 }
-async function approveAndPost(id){await approveClip(id);await postClip(id);}
+
+// Post to one specific platform (clip already approved)
+async function postClipTo(id, platform){ await _doPost(id, platform); }
+
+// Approve then post to one specific platform
+async function approveAndPostTo(id, platform){
+  await approveClip(id);
+  await _doPost(id, platform);
+}
+
+// Post to ALL configured platforms that haven't been posted yet
+async function postAllPlatforms(id){
+  const clip=allClips.find(c=>c.id===id);
+  if(!clip) return;
+  const postedIds=clip.post_ids||{};
+  const all=['youtube','instagram','facebook','tiktok','tiktok_uploadpost','instagram_uploadpost','facebook_uploadpost'];
+  const targets=all.filter(p=>configuredPlatforms.includes(p)&&!postedIds[p]);
+  if(!targets.length){toast('No platforms left to post to.','error');return;}
+  toast(`Posting to ${targets.length} platform(s)...`,'success');
+  for(const p of targets){ await _doPost(id, p); }
+}
+
+// Approve then post to ALL configured platforms
+async function approveAndPostAll(id){
+  await approveClip(id);
+  await postAllPlatforms(id);
+}
+
+// Legacy — kept for any remaining references
+async function approveAndPost(id){ await approveAndPostTo(id, configuredPlatforms[0]||'youtube'); }
 function gotoPerf(clipId){
   document.querySelectorAll('.nav-tab')[2].click();
   setTimeout(()=>{document.getElementById('perfClipId').value=clipId;document.getElementById('perfViews').focus();},200);
